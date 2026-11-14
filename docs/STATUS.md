@@ -34,6 +34,6 @@ simulation constants and collision code need to move to `shared/` to be reused b
 
 ## Next step
 
-Damian reviews the P0 pull requests (this repository and the private infrastructure one) and answers the open
-decisions in [`ROADMAP.md`](ROADMAP.md#open-decisions). Then **P1**: restructuring into `client/` + `shared/` with
+Damian reviews and merges the P0 pull requests (this repository and the private infrastructure one); the P0
+decisions are taken (ADR-007 to ADR-010). Then **P1**: restructuring into `client/` + `shared/` with
 Vite and TypeScript, no gameplay change.

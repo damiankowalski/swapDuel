@@ -10,6 +10,7 @@ and a runbook, the owner runs it.
   (ADR-004).
 - One container image with the built client and the server, plus an outbound tunnel connector; Docker Compose; no
   published ports (ADR-007, `SECURITY.md` §4).
+- First deployment behind an invite-only access gate at the edge (ADR-009).
 
 ## 2. Release pipeline (P3)
 

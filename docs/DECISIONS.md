@@ -105,7 +105,7 @@ results back.
 
 ## ADR-007 - Deployment as a hardened container behind an outbound tunnel
 
-**Date:** 2026-11-14 · **Status:** proposed (owner's approval in P0 review)
+**Date:** 2026-11-14 · **Status:** accepted (owner, 2026-11-14)
 
 **Decision.** The game server runs as a container in its own compose project with no published ports. An outbound
 tunnel connector (a second container) is the only way in. The game container sits only on an *internal* network
@@ -120,3 +120,47 @@ host. It also adds what a host process would not have: no outbound network at al
 original intent (reachable only through the front door, never directly) is kept. Consequence for P2: the server
 must take the client IP from a configurable trusted header (`CLIENT_IP_HEADER`), because every socket arrives from
 the connector.
+
+---
+
+## ADR-008 - Keep the P2P online mode through P1 (PeerJS from npm, temporary)
+
+**Date:** 2026-11-14 · **Status:** accepted
+
+**Decision.** P1 moves the game to Vite + TypeScript without dropping the existing P2P online mode: `peerjs` becomes
+an npm dependency of the client until P2 replaces it with the game server, then it is removed.
+
+**Alternatives.** Drop online play in P1 and ship only the bot mode until P2.
+
+**Reason.** `main` must always run (AGENTS.md); keeping a working online mode costs one temporary dependency and no
+new design. The dependency is bundled at build time, so no CDN is used at runtime.
+
+---
+
+## ADR-009 - Invite-only access gate for the first deployment
+
+**Date:** 2026-11-14 · **Status:** accepted
+
+**Decision.** For P3 and the first online tests, an access gate at the edge (players sign in with a one-time e-mail
+code) sits in front of the whole game host. Opening the game to the public is a later, separate decision.
+
+**Alternatives.** Public from day one, relying on the game's own limits.
+
+**Reason.** Unauthenticated visitors never reach the game process, which shrinks the main threat (an exploit in
+message handling, `SECURITY.md` T1) to invited players, and makes squatting the only match slot impractical. It
+costs no code: the gate's cookie travels with the same-origin WebSocket upgrade. The game's own protections stay in
+place unchanged, so removing the gate later needs no redesign.
+
+---
+
+## ADR-010 - Container image built by GitHub Actions and published to GHCR
+
+**Date:** 2026-11-14 · **Status:** accepted
+
+**Decision.** A tag `vX.Y.Z` triggers a GitHub Actions workflow that builds the image and publishes it as a public
+package `ghcr.io/damiankowalski/swapduel:X.Y.Z`. The server only pulls a named version.
+
+**Alternatives.** Build the image on the server from the clone.
+
+**Reason.** The same image is tested and deployed; the server needs no build tools and no registry login (public
+repository, public package); rollback is pulling the previous tag.

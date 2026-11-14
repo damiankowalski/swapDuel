@@ -50,6 +50,9 @@ main question is not "can someone break the game" but "can a flaw in the game be
 
 ## 4. Process layer (how the game runs)
 
+- For the first deployment an invite-only access gate at the edge keeps unauthenticated visitors away from the game
+  process entirely (ADR-009). Everything below holds without it too.
+
 - A container with: a non-root user, a read-only file system, all Linux capabilities dropped, `no-new-privileges`,
   memory, CPU and process-count limits, no volumes, no access to the container runtime's socket.
 - **No published ports.** The only way in is an outbound tunnel connector in a separate container.
