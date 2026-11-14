@@ -22,19 +22,32 @@ export const BODY_SEGMENT_TOP = 1.35;
 export const HEAD_CENTER_Y = 1.75;
 export const HEAD_RADIUS = 0.3;
 
-/** Muzzle position in the fighter's local frame (x right, y up, -z forward); only used for tracers. */
-export const MUZZLE_OFFSET = { x: 0, y: 1.5, z: -1.0 } as const;
-
 export const MOVE_SPEED = 6.0; // m/s
 export const BOT_SPEED = 2.6; // m/s
 export const TURN_SPEED = 2.4; // rad/s, arrow keys
 
-/** Time between shots while fire is held (s). */
-export const FIRE_INTERVAL = 0.12;
-/** After a hit, further hits by the same shooter are ignored for this long (s). */
-export const HIT_COOLDOWN = 0.6;
-/** Length of a shot that hits nothing (m). */
-export const SHOT_RANGE = 60;
+// ---------- Snowballs (they replaced the hit-scan laser of v0.1.0-v0.3.0) ----------
+
+/** Snowballs each player has at the start of a match. */
+export const START_AMMO = 5;
+/** One more snowball every AMMO_INTERVAL seconds. */
+export const AMMO_INTERVAL = 10;
+/** Most snowballs a player can hold. Infinity = they keep piling up (owner's choice, ADR-013). */
+export const MAX_AMMO = Infinity;
+/** Shortest time between two throws (s); each throw needs a new press of the fire key. */
+export const THROW_COOLDOWN = 0.3;
+/** Launch speed (m/s) and angle above the horizon (rad): about 18 m of range on flat ground. */
+export const SNOWBALL_SPEED = 20;
+export const SNOWBALL_ELEVATION = (8 * Math.PI) / 180;
+export const GRAVITY = 9.81;
+export const SNOWBALL_RADIUS = 0.15;
+/** Where a snowball leaves the hand, in the fighter's frame (up, forward). */
+export const THROW_HEIGHT = 1.5;
+export const THROW_FORWARD = 0.5;
+/** A snowball older than this (s) melts away. */
+export const SNOWBALL_LIFETIME = 4;
+/** Physics step for flying snowballs (s): 8 cm per step at full speed, less than the ball's radius. */
+export const SNOWBALL_STEP = 1 / 240;
 
 /** Longest frame step the simulation accepts (s); longer frames are clamped. */
 export const MAX_FRAME_DT = 0.05;
