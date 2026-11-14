@@ -22,14 +22,18 @@ projected reticle sits at the centre of the screen (the point they look from).
 
 ## Repository map
 
-Today (P1, v0.2.0):
+Today (P2, v0.3.0):
 
 ```
 swapduel/
-├─ client/                Vite entry: index.html (markup + CSS), src/main.ts (rendering, input, HUD, P2P mode)
-├─ shared/                pure TypeScript simulation: constants, math, arena collisions, player movement, bot,
-│                         hit-scan shots, room codes, P2P message validation, headless match; *.test.ts next to it
-├─ tools/sim.ts           CLI for the headless match (npm run sim)
+├─ client/                Vite entry: index.html (markup + CSS), src/main.ts (rendering, input, HUD, training),
+│                         src/net.ts (online session: WebSocket, prediction, interpolation, dev lag simulator)
+├─ server/                game server, TypeScript run directly by Node: app.ts (HTTP + WebSocket, limits),
+│                         rooms.ts (codes, MAX_ROOMS, timeouts), match.ts (authoritative 30 Hz simulation),
+│                         config.ts (environment), limits.ts, main.ts (entry); *.test.ts next to them
+├─ shared/                pure TypeScript: game rules (constants, arena, player, bot, shots, room codes), the
+│                         protocol, and the netcode (netsim, prediction, interpolation, One Euro filter, lag)
+├─ tools/                 sim.ts (CLI), netplay.ts (headless network match for the camera metrics)
 ├─ docs/                  STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT
 ├─ .github/               CI (typecheck, tests, sim, build, audit), Pages deployment, Dependabot
 ├─ vite.config.ts         builds client/ to dist/index.html (one self-contained file)
@@ -37,8 +41,7 @@ swapduel/
 └─ AGENTS.md, CLAUDE.md, README.md, LICENSE
 ```
 
-Still to come (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): `server/` (Node + `ws`: serves `dist/`, WebSocket `/ws`,
-`GET /status`; P2) and `deploy/` (image, compose file, runbook; P3).
+Still to come (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): `deploy/` (image, compose file, runbook; P3).
 
 `shared/` must never import Three.js, DOM or Node APIs (`tsconfig.shared.json` enforces it): the client, the
 server and headless tests all run it. Only `client/` may use Three.js.
@@ -64,13 +67,18 @@ Keep these names stable; CI runs the same ones.
 | Command | What it does |
 | --- | --- |
 | `npm ci` | Install exactly what the lockfile says |
-| `npm run dev` | Vite dev server on `http://127.0.0.1:5173` (bot mode works offline; P2P mode needs internet) |
+| `npm run dev` | Vite dev server on `http://127.0.0.1:5173`; proxies `/ws` and `/status` to `npm run server` |
 | `npm run build` | Build the client to `dist/index.html` (one self-contained file) |
 | `npm run preview` | Serve the built `dist/` locally |
 | `npm run typecheck` | `tsc` (no emit) for shared, client and the Node side |
-| `npm test` | `node --test` on `shared/**/*.test.ts` and `tools/**/*.test.ts` |
+| `npm test` | `node --test` on `shared/`, `server/` and `tools/` tests (unit, socket integration, camera metrics) |
 | `npm run sim -- --seconds 300 --seed 1` | Headless bot-vs-bot match; fails if a fighter ever leaves the valid area |
-| `npm run server` | From P2: the game server locally (serves `dist/`, `/ws`, `/status`) |
+| `npm run sim -- --net --lag 150 --jitter 30 --stall 0.02` | Headless network match: camera smoothness vs v0.1.0 |
+| `npm run server` | Game server on `http://127.0.0.1:8080` (serves `dist/`, `/ws`, `/status`); env vars in `server/config.ts` |
+| `npm run play` | `build` + `server`: open two tabs at `http://127.0.0.1:8080` and play |
+
+Simulated network in the browser (dev builds only): run `npm run server` and `npm run dev`, then open
+`http://127.0.0.1:5173/?lag=150&jitter=30&stall=0.02` (one-way values; `?debug` shows the net overlay without lag).
 
 ## Standing rules
 

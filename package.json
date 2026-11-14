@@ -1,6 +1,6 @@
 {
   "name": "swapduel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Experimental second-person shooter in the browser.",
   "license": "MIT",
@@ -13,16 +13,19 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p client/tsconfig.json && tsc -p tsconfig.json",
-    "test": "node --test \"shared/**/*.test.ts\" \"tools/**/*.test.ts\"",
-    "sim": "node tools/sim.ts"
+    "test": "node --test \"shared/**/*.test.ts\" \"server/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "sim": "node tools/sim.ts",
+    "server": "node server/main.ts",
+    "play": "npm run build && npm run server"
   },
   "dependencies": {
-    "peerjs": "1.5.4",
-    "three": "0.160.0"
+    "three": "0.160.0",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/three": "0.160.0",
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vite-plugin-singlefile": "^2.3.4"

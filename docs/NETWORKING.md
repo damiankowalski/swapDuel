@@ -1,7 +1,8 @@
 # Networking design
 
-Status: **design only** (P0). Implemented in P2; this file is updated with every netcode change. Numbers marked
-*(tune)* are starting values.
+Status: **implemented in P2** (local server; deployment in P3). This file is updated with every netcode change.
+Numbers marked *(tune)* can still change. Code: `shared/protocol.ts`, `server/`, `client/src/net.ts`, and the pure
+netcode in `shared/` (`prediction.ts`, `interpolation.ts`, `one-euro.ts`, `lag.ts`).
 
 ## 1. Goals and non-goals
 
@@ -24,19 +25,28 @@ Browser B ──wss://host/ws──┘                       └── room stat
 - Messages are JSON text frames with short keys, at most 1 KB each. JSON is easy to validate and debug; at 30 Hz a
   snapshot is about 200 bytes, so a match is a few KB/s per player. Binary encoding is a later optimisation.
 - `permessage-deflate` is off (CPU cost and decompression-bomb risk for no real gain at this size).
-- Configuration by environment: `HOST` (default `127.0.0.1`), `PORT` (default `8080`), `MAX_ROOMS` (default `1`),
-  `ALLOWED_ORIGIN`, `CLIENT_IP_HEADER` (unset = use the socket address), timeouts below.
+- Configuration by environment (`server/config.ts`): `HOST` (default `127.0.0.1`), `PORT` (default `8080`),
+  `MAX_ROOMS` (default `1`), `ALLOWED_ORIGINS` (comma-separated exact origins; required when `HOST` is not loopback;
+  the local default allows ports 8080 and 5173), `CLIENT_IP_HEADER` (unset = use the socket address),
+  `MAX_CONNECTIONS` (16), `MAX_CONNECTIONS_PER_IP` (4), `MAX_PENDING_HANDSHAKES` (8), and the timeouts below in
+  seconds (`HANDSHAKE_TIMEOUT_S`, `WAITING_ROOM_TIMEOUT_S`, `IDLE_TIMEOUT_S`, `HEARTBEAT_INTERVAL_S`, `MATCH_MAX_S`).
 
 ## 3. Connection lifecycle and handshake
 
-1. HTTP upgrade on `/ws`. The server checks, before accepting: path, `Origin` equals `ALLOWED_ORIGIN` exactly, the
-   per-IP and global connection caps, the pending-handshake cap. Failure: HTTP 403 / 503, no WebSocket.
+1. HTTP upgrade on `/ws`. The server checks, before accepting: path (exactly `/ws`), `Origin` is one of
+   `ALLOWED_ORIGINS` exactly, the client IP is known, the pending-handshake cap, the per-IP and global connection
+   caps. Failure: HTTP 404 / 403 / 400 / 503, no WebSocket.
 2. Client sends `hello { v: PROTOCOL_VERSION }` within 5 s *(tune)*, otherwise the socket is closed.
 3. Server answers `welcome { v, tickHz: 30, serverTick }` or `reject { reason }` and closes. Reasons:
-   `version` (client shows "A new version is available - reload the page"), `busy`, `full`, `bad_code`, `timeout`.
+   `version` (client shows "A new version is available - reload the page"), `busy`, `full`, `bad_code`, `timeout`,
+   `protocol`.
 4. Client sends `create {}` or `join { code }`; server answers `room { code, seat }` or `reject`.
-5. Both players press *Start*: `ready {}`. The server starts the match with `start { tick, spawns }`.
-6. During the match: client -> `input`, server -> `snap` (§6). `leave {}` or a closed socket ends the seat.
+5. When the second player joins, the server starts the match at once: `start { tick, you, opp }` to both. (There is no
+   `ready` step: until a player clicks the start screen, the client sends empty inputs, and the idle timeout covers a
+   player who never starts.)
+6. During the match: client -> `in`, server -> `snap` (§6). `leave {}` or a closed socket ends the match for both;
+   the server sends `end { reason }` (`opponent_left`, `time_limit`, `idle`, `room_expired`, `server_shutdown`) and
+   closes the socket. A new game uses a new socket.
 
 `PROTOCOL_VERSION` is an integer in `shared/protocol.ts`, bumped on every incompatible change. Client and server
 come from the same build (ADR-004), so a mismatch means a stale tab after a deployment.
@@ -53,13 +63,14 @@ come from the same build (ADR-004), so a mismatch means a stale tab after a depl
 | --- | --- | --- |
 | Handshake (`hello`) | 5 s | Close socket |
 | Room waiting for the second player | 3 min | Close room, notify host |
-| No input from a player in a match | 60 s | Disconnect that player |
+| No key pressed by a player in a match | 60 s | End the match (`idle` / `opponent_left`) |
 | Heartbeat (ping every 5 s, no pong) | about 10 s | Terminate socket |
 | Match length | 20 min | End match, show result |
-| Seat held after a dropped socket (§10) | 15 s | Then the match ends |
+| Seat held after a dropped socket | - | Not in P2: a dropped socket ends the match (§10) |
 
-- Without an access gate in front of the game, add a short per-IP cool-down for creating a room after one expired
-  unused, so one client cannot hold the only slot by re-creating it forever.
+- Not implemented yet: a short per-IP cool-down for creating a room after one expired unused, so one client cannot
+  hold the only slot by re-creating it forever. Not needed while the access gate is in front (ADR-009); required
+  before the game is opened to the public.
 
 `GET /status` returns `{ "state": "free" | "busy", "protocol": <int> }` with `Cache-Control: no-store`. It says
 nothing about players, codes or addresses.
@@ -71,7 +82,7 @@ nothing about players, codes or addresses.
 - Inputs are *intents*, not positions: a bitmask (`forward`, `back`, `left`, `right`, `turnLeft`, `turnRight`,
   `fire`). The server applies its own speeds and turn rate, so a client cannot teleport or snap-turn. (Mouse aim in P4
   will send an absolute yaw, clamped to the maximum turn rate per tick.)
-- Fire: server-side cooldown 0.12 s; hit-scan from the shooter's eye along the shooter's yaw against the walls, the
+- Fire: server-side cooldown 0.12 s (at 30 Hz a held trigger fires every 4th tick, 0.133 s); hit-scan from the shooter's eye along the shooter's yaw against the walls, the
   crate and the opponent's hit shape (capsule as a vertical cylinder), at the tick the input is processed.
 - Hit -> score +1, the victim respawns at a server-chosen point (P4: brief invulnerability).
 
@@ -80,7 +91,7 @@ nothing about players, codes or addresses.
 Client -> server, once per client tick (30 Hz):
 
 ```
-input { seq: uint32, keys: uint8 bitmask }
+in { s: uint32 sequence, k: 7-bit key mask (forward 1, back 2, left 4, right 8, turnLeft 16, turnRight 32, fire 64) }
 ```
 
 Server -> client, every tick:
@@ -91,8 +102,9 @@ snap { tick, ack: last seq processed for this client,
        score: [you, opp], ev: [ { k: "shot" | "hit" | "spawn", ... } ] }
 ```
 
-Events carry tracer endpoints and respawns so both clients draw the same thing. `seq` must grow; the server keeps at
-most 4 *(tune)* queued inputs per player and drops the oldest beyond that (a client cannot "bank" moves).
+Events carry tracer endpoints and respawns so both clients draw the same thing. `s` must grow (a repeated or older
+number closes the socket); the server keeps at most 4 *(tune)* queued inputs per player and drops the oldest beyond
+that (a client cannot "bank" moves). It applies one input per tick, two when more than two are queued.
 
 ## 7. Client prediction and reconciliation
 
@@ -104,12 +116,16 @@ most 4 *(tune)* queued inputs per player and drops the oldest beyond that (a cli
 
 ## 8. Opponent interpolation
 
-- Snapshots go into a buffer stamped with the server tick. The opponent is drawn at `renderTick = latestTick -
-  delay`, linear between the two surrounding snapshots; yaw along the shortest arc.
-- `delay` starts at 100 ms (3 ticks) and adapts: `max(100 ms, 1 tick + 2 x jitter estimate)` *(tune)*, changed
-  slowly (time scaling of at most a few percent) so motion never jumps.
-- Buffer starvation: extrapolate at most 100 ms, then hold. Every starvation is counted (§11).
-- A respawn event cuts the interpolation (no gliding across the arena).
+- Snapshots go into a buffer stamped with the server tick. The client tracks how late each snapshot arrives
+  compared with the fastest one of the last 3 s (90 snapshots). The opponent is drawn at
+  `renderTime = now - fastestOffset - delay`, linear between the two surrounding snapshots; yaw along the shortest arc.
+- `delay` starts at 100 ms and adapts to `max(100 ms, 1 tick + spread + 10 ms)`, where `spread` is the difference
+  between the latest and the fastest arrival in the window *(tune)*. It grows at most 10% of real time (the
+  opponent plays slightly slower) and shrinks at most 2% (slightly faster), so motion never jumps.
+- Buffer starvation: extrapolate at most 100 ms, then **pause** the opponent's clock (the delay grows by the length
+  of the stall) instead of jumping forward when data returns; the extra delay is played off slowly. Every
+  starvation is counted (§11).
+- A respawn event cuts the interpolation (no gliding across the arena) and resets the camera filter.
 
 ## 9. Hits and latency (PoC limits)
 
@@ -119,17 +135,18 @@ normal pings; lag compensation (rewinding the target by the shooter's view delay
 
 ## 10. Reconnect
 
-At `room` the server gives each seat a random 128-bit `resume` token (in memory only). If a socket drops during a
-match, the seat is held for 15 s *(tune)*; the client reconnects automatically with `hello` + `resume { code, token }`
-and gets the next snapshots. After 15 s the match ends for both. Tokens die with the room.
+**Not in P2** (ADR-012): a dropped socket ends the match for both, with a clear message. Planned for later: at
+`room` the server gives each seat a random 128-bit `resume` token (in memory only); a dropped seat is held for 15 s
+and the client reconnects with `hello` + `resume { code, token }`.
 
 ## 11. Metrics
 
-- Server, logged once a minute (no addresses, no codes): tick time avg/max, sockets, rooms, messages and bytes in/out
-  per second, rejections and closes by reason (`origin`, `rate`, `size`, `schema`, `unknown_type`, `version`,
-  `busy`, timeouts).
-- Client debug overlay (dev builds, toggled by a key): RTT, jitter estimate, interpolation delay, buffer depth,
-  starvations, prediction corrections (count and size), camera jitter (§12).
+- Server, one JSON log line a minute (no addresses, no codes): sockets, rooms, messages in/out, bytes in, refused
+  upgrades by reason (`path`, `origin`, `no_client_ip`, `pending`, `too_many`, `too_many_from_ip`), closed sockets
+  by reason (`normal`, `schema`, `rate`, `protocol`, `sequence`, `binary`, `wrong_codes`, `handshake_timeout`,
+  `heartbeat`, `error`) and the longest tick. Plus one line per room created, match started and room closed.
+- Client overlay (dev builds, with `?debug` or a lag setting): RTT, interpolation delay, jitter spread,
+  starvations, prediction corrections (count and size of the last).
 
 ## 12. CAMERA
 
@@ -143,28 +160,38 @@ worst: with the game's 75° vertical field of view, 1° of yaw jitter shifts the
 1. **Interpolate, never chase.** Render from the snapshot buffer at `renderTick` (§8), not by lerping towards the
    latest packet as v0.1.0 does. With an adaptive delay, the input to the camera is already continuous.
 2. **Filter the camera, not the model.** Run the camera's yaw and position through a One Euro filter (adaptive low-pass:
-   strong smoothing when the opponent turns slowly, little lag when they turn fast). Starting values *(tune)*:
-   `minCutoff` 1.0 Hz, `beta` 0.02, `dCutoff` 1.0 Hz; yaw filtered as an unwrapped angle.
-3. **Cut on teleports.** A respawn event (or a jump above 2 m / 90°) resets the filter and cuts, with a 150 ms
-   fade, instead of smoothing across the arena.
+   strong smoothing when the opponent turns slowly, little lag when they turn fast). Values *(tune)*: yaw
+   `minCutoff` 1.0 Hz, `beta` 3.0, `dCutoff` 1.0 Hz (about 3 degrees of lag at full turn speed); position `beta` 1.5;
+   yaw filtered as an unwrapped angle. (The first guess, `beta` 0.02, lagged 16 degrees behind a full-speed turn.)
+3. **Cut on teleports.** A respawn event resets the filter and cuts, instead of smoothing across the arena.
 4. **One camera for everything.** The reticle projection uses the same filtered camera, so the reticle never jitters
    against the scene.
 5. **No camera extrapolation beyond 100 ms**; on starvation the camera eases to a stop.
 
 **Measurement.**
 
-- **Lag simulator** (dev builds and headless tests): wraps the socket with a configurable one-way delay, jitter
-  (normal distribution) and stalls (TCP loss appears as head-of-line blocking, so "loss" is simulated as a 200 ms
-  stall with a given probability). In the browser via a query string in dev builds only, e.g.
-  `?lag=150&jitter=30&stall=0.02`.
-- **Headless camera test** (`npm test`, from P2): a bot plays on the real server code; its snapshots pass the lag
-  simulator; the client's interpolation and camera filter run at 60 fps. Ground truth is the bot's real path. Metrics:
-  - camera yaw jitter = RMS of frame-to-frame change of yaw angular velocity (deg/s per frame), compared with the
-    same metric on the ground truth;
-  - largest single-frame yaw step beyond the ground truth's;
-  - position error against the ground truth delayed by the interpolation delay;
-  - number of buffer starvations.
-- **Scenarios:** 0 ms; 150 ms ± 30 ms; 150 ms ± 50 ms with 2% stalls; 300 ms ± 80 ms.
-- **P2 "done" threshold** *(tune)*: at 150 ms ± 30 ms, camera yaw jitter at most 1.5x the ground truth's, no extra
-  frame step above 2°, zero starvations; at 150 ms ± 50 ms with stalls, no frame step above 5°.
-- **By eye:** two tabs with the simulator at 150 ms ± 30 ms; the overlay shows the same metrics live.
+- **Lag simulator** (`shared/lag.ts`; dev builds and headless tests): one-way delay, jitter (normal distribution) and
+  stalls (TCP loss appears as head-of-line blocking, so "loss" is a 200 ms stall with a given probability), applied
+  to both directions, never reordering messages. In the browser in dev builds only:
+  `npm run dev` + `npm run server`, then `http://127.0.0.1:5173/?lag=150&jitter=30&stall=0.02`.
+- **Headless camera test** (`tools/netplay.ts`, run by `npm test` and `npm run sim -- --net`): the real server match
+  logic with a scripted opponent (walking, strafing, turning); its snapshots pass the lag simulator; the client's
+  interpolation and camera filter run at 60 fps. Ground truth is the opponent's real path. Metrics:
+  - yaw jerk = RMS of the frame-to-frame change of the yaw step (deg/frame²), for the camera and the truth;
+    *jitter ratio* = camera / truth;
+  - largest yaw step in one frame beyond what a fighter can really turn in a frame (2.3° at 60 fps);
+  - largest position step beyond what a fighter can really walk in a frame (0.1 m);
+  - buffer starvations.
+- **Thresholds enforced by the tests** (three seeds, 2-minute matches) *(tune)*:
+
+  | Scenario | Thresholds | Measured (worst seed) |
+  | --- | --- | --- |
+  | 150 ms ± 30 ms | jitter ratio ≤ 1.0, yaw jump ≤ 1.5°, position jump ≤ 0.1 m, yaw jerk ≤ half of v0.1.0's, ≤ 10 starvations | 0.83, 1.01° (v0.1.0: 3.3°), 0.04 m, 0.19 vs 0.64, 8 |
+  | 150 ms ± 50 ms, 2% stalls of 200 ms | yaw jump ≤ 5°, jitter ratio ≤ 1.2, smaller jumps than v0.1.0 | 3.6° (v0.1.0: 7.8°), 0.89 |
+  | 300 ms ± 80 ms | yaw jump ≤ 2°, jitter ratio ≤ 1.0 | 1.08° (v0.1.0: 6.1°), 0.86 |
+  | no lag | no starvation, delay 100 ms | 0, 100 ms |
+
+  The first design target was "zero starvations"; with a delay of about 160 ms there are still a few per minute at
+  ± 30 ms. Each is bridged by at most 100 ms of extrapolation and does not show in the camera metrics, so the
+  threshold is "rare" rather than zero, which keeps the delay (and the latency) lower.
+- **By eye:** two tabs with the simulator at 150 ms ± 30 ms; the overlay shows RTT, delay, spread and starvations.

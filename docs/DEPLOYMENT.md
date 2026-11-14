@@ -40,9 +40,10 @@ services:
   connector:   # outbound tunnel; on "game" and "egress"; token from the server's .env
 ```
 
-Environment of `server`: `SWAPDUEL_VERSION` (image tag), `HOST=0.0.0.0`, `PORT=8080`, `MAX_ROOMS=1`,
-`ALLOWED_ORIGIN=https://swapduel.damiankowalski.pl`, `CLIENT_IP_HEADER` (the edge's client-IP header). The only
-secret, the tunnel token, is in an environment file on the server, readable by root only, never in git.
+Environment of `server` (all variables: `server/config.ts`, `NETWORKING.md` §2): `HOST=0.0.0.0`, `PORT=8080`,
+`MAX_ROOMS=1`, `ALLOWED_ORIGINS=https://swapduel.damiankowalski.pl`, `CLIENT_IP_HEADER` (the edge's client-IP
+header). The compose file also uses `SWAPDUEL_VERSION` (image tag). The only secret, the tunnel token, is in an
+environment file on the server, readable by root only, never in git.
 
 ## 5. Runbook outline (written in full in P3)
 
@@ -57,5 +58,5 @@ secret, the tunnel token, is in an environment file on the server, readable by r
 
 ## 6. Local equivalent
 
-From P2, `npm run build && npm run server` runs the same server on `http://127.0.0.1:8080` with
-`ALLOWED_ORIGIN=http://127.0.0.1:8080`; two tabs play against each other, the lag simulator adds latency.
+`npm run play` (build + server) runs the same server on `http://127.0.0.1:8080`, which by default accepts the
+local origins; two tabs play against each other. The lag simulator works in dev builds (`AGENTS.md`, Commands).

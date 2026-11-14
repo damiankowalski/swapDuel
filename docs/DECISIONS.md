@@ -178,3 +178,23 @@ Upgrades come later as separate pull requests (Dependabot proposes them).
 
 **Reason.** P1 must not change the game; newer Three.js releases change rendering defaults and APIs, which would mix
 a visual change into a structural one. A separate upgrade is easy to review and to revert.
+
+---
+
+## ADR-012 - P2 scope: no "ready" step, no reconnect yet, starvation threshold
+
+**Date:** 2026-11-14 · **Status:** accepted (owner's review of P2)
+
+**Decision.** (1) The match starts when the second player joins; there is no `ready` message. (2) A dropped socket
+ends the match for both with a clear message; reconnecting into a running match moves to the "Later" list.
+(3) The camera requirement is "smooth" (jitter ratio and jump limits in `NETWORKING.md` §12) with rare, bridged
+buffer starvations, not "zero starvations".
+
+**Alternatives.** The full design from P0: a `ready` handshake, a 15 s seat hold with a resume token, zero
+starvations at 150 ms ± 30 ms.
+
+**Reason.** (1) The start screen already gates local input, and the idle timeout covers a player who never starts,
+so `ready` adds protocol for nothing. (2) Reconnect needs tokens, seat holds and resynchronisation; it is not needed
+to prove the server works and is easier to add once the deployment is real. (3) Zero starvations at ± 30 ms needs a
+much longer delay (more latency for everyone); the measured starvations are bridged by at most 100 ms of
+extrapolation and do not show in the camera metrics.
