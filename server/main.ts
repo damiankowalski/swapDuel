@@ -14,7 +14,17 @@ try {
 }
 
 const game = createGameServer(config);
-await game.listen();
+try {
+  await game.listen();
+} catch (err) {
+  const code = (err as NodeJS.ErrnoException).code;
+  console.error(
+    code === 'EADDRINUSE'
+      ? `Port ${config.port} on ${config.host} is already in use: is another game server running? Stop it, or set PORT.`
+      : `Could not start: ${(err as Error).message}`,
+  );
+  process.exit(1);
+}
 
 let stopping = false;
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
