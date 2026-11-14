@@ -1,9 +1,9 @@
 // Client <-> server protocol (docs/NETWORKING.md). JSON text frames with short keys.
 // Both sides validate everything they receive; the server closes the socket on any invalid message.
-import { ARENA_HALF, SHOT_RANGE } from './constants.ts';
+import { AMMO_INTERVAL, ARENA_HALF, SNOWBALL_SPEED } from './constants.ts';
 
-/** Bump on every incompatible change; client and server come from the same build. */
-export const PROTOCOL_VERSION = 1;
+/** Bump on every incompatible change; client and server come from the same build. v2: snowballs. */
+export const PROTOCOL_VERSION = 2;
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
 /** Largest frame the server accepts (bytes). */
@@ -29,8 +29,13 @@ export interface Pose {
 
 export type Who = 'you' | 'opp';
 
+export type Vec3Tuple = [number, number, number];
+
 export type GameEvent =
-  | { k: 'shot'; by: Who; from: [number, number, number]; to: [number, number, number] }
+  /** A snowball left `by`'s hand this tick at `from` with velocity `vel`. */
+  | { k: 'throw'; by: Who; id: number; from: Vec3Tuple; vel: Vec3Tuple }
+  /** Snowball `id` hit something and is gone. */
+  | { k: 'splat'; id: number; at: Vec3Tuple }
   | { k: 'hit'; by: Who }
   | { k: 'spawn'; who: Who; x: number; z: number };
 
@@ -51,7 +56,18 @@ export type ServerMessage =
   | { t: 'reject'; reason: RejectReason }
   | { t: 'room'; code: string; seat: 0 | 1 }
   | { t: 'start'; tick: number; you: Pose; opp: Pose }
-  | { t: 'snap'; tick: number; ack: number; you: Pose; opp: Pose; score: [number, number]; ev: GameEvent[] }
+  | {
+      t: 'snap';
+      tick: number;
+      ack: number;
+      you: Pose;
+      opp: Pose;
+      score: [number, number];
+      /** Your snowballs, and seconds until the next one arrives. */
+      ammo: number;
+      next: number;
+      ev: GameEvent[];
+    }
   | { t: 'end'; reason: EndReason };
 
 const CODE_RE = /^[A-HJKMNP-Z2-9]{5}$/;
@@ -108,7 +124,9 @@ export function parseClientMessage(text: string): ClientMessage | null {
 }
 
 const POS_LIMIT = ARENA_HALF + 1;
-const POINT_LIMIT = ARENA_HALF + SHOT_RANGE + 1;
+const POINT_LIMIT = ARENA_HALF + 5;
+const VEL_LIMIT = SNOWBALL_SPEED * 2;
+const MAX_AMMO_VALUE = 100_000;
 
 function parsePose(v: unknown): Pose | null {
   if (typeof v !== 'object' || v === null) return null;
@@ -118,8 +136,8 @@ function parsePose(v: unknown): Pose | null {
     : null;
 }
 
-function parsePoint(v: unknown): [number, number, number] | null {
-  return Array.isArray(v) && v.length === 3 && v.every((n) => isNum(n, POINT_LIMIT))
+function parseTuple(v: unknown, limit: number): Vec3Tuple | null {
+  return Array.isArray(v) && v.length === 3 && v.every((n) => isNum(n, limit))
     ? [v[0] as number, v[1] as number, v[2] as number]
     : null;
 }
@@ -131,10 +149,14 @@ function isWho(v: unknown): v is Who {
 function parseEvent(v: unknown): GameEvent | null {
   if (typeof v !== 'object' || v === null) return null;
   const e = v as Record<string, unknown>;
-  if (e['k'] === 'shot' && isWho(e['by'])) {
-    const from = parsePoint(e['from']);
-    const to = parsePoint(e['to']);
-    return from && to ? { k: 'shot', by: e['by'], from, to } : null;
+  if (e['k'] === 'throw' && isWho(e['by']) && isInt(e['id'], 0, MAX_SEQ)) {
+    const from = parseTuple(e['from'], POINT_LIMIT);
+    const vel = parseTuple(e['vel'], VEL_LIMIT);
+    return from && vel ? { k: 'throw', by: e['by'], id: e['id'], from, vel } : null;
+  }
+  if (e['k'] === 'splat' && isInt(e['id'], 0, MAX_SEQ)) {
+    const at = parseTuple(e['at'], POINT_LIMIT);
+    return at ? { k: 'splat', id: e['id'], at } : null;
   }
   if (e['k'] === 'hit' && isWho(e['by'])) return { k: 'hit', by: e['by'] };
   if (e['k'] === 'spawn' && isWho(e['who']) && isNum(e['x'], POS_LIMIT) && isNum(e['z'], POS_LIMIT)) {
@@ -178,6 +200,7 @@ export function parseServerMessage(text: string): ServerMessage | null {
       const score = m['score'];
       const ev = m['ev'];
       if (!isInt(m['tick'], 0, Number.MAX_SAFE_INTEGER) || !isInt(m['ack'], -1, MAX_SEQ) || !you || !opp) return null;
+      if (!isInt(m['ammo'], 0, MAX_AMMO_VALUE) || !isNum(m['next'], AMMO_INTERVAL) || (m['next'] as number) < 0) return null;
       if (!Array.isArray(score) || score.length !== 2 || !score.every((n) => isInt(n, 0, 1_000_000))) return null;
       if (!Array.isArray(ev) || ev.length > 32) return null;
       const events: GameEvent[] = [];
@@ -186,7 +209,17 @@ export function parseServerMessage(text: string): ServerMessage | null {
         if (!parsed) return null;
         events.push(parsed);
       }
-      return { t: 'snap', tick: m['tick'], ack: m['ack'], you, opp, score: [score[0] as number, score[1] as number], ev: events };
+      return {
+        t: 'snap',
+        tick: m['tick'],
+        ack: m['ack'],
+        you,
+        opp,
+        score: [score[0] as number, score[1] as number],
+        ammo: m['ammo'],
+        next: m['next'] as number,
+        ev: events,
+      };
     }
     case 'end':
       return END_REASONS.includes(m['reason'] as EndReason) ? { t: 'end', reason: m['reason'] as EndReason } : null;

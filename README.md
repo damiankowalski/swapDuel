@@ -13,11 +13,12 @@ browser. An authoritative game server is planned - see
 
 - **W A S D** - move
 - **<- ->** - turn left / right
-- **Space** - fire (hold for a burst)
+- **Space** - throw a snowball
 - **V** - toggle view (opponent's eyes <-> your own eyes)
 
-The amber reticle shows where your shot will really go. You hit your opponent when the reticle is at the centre of
-the screen (the centre is the point they look from).
+Snowballs fly in an arc and take time to arrive, so aim ahead of a moving opponent. You start with 5 and get one
+more every 10 seconds; unused ones pile up. The dashed amber arc and the reticle show where your next snowball will
+land. The opponent is always at the centre of the screen (the centre is the point they look from).
 
 ## Playing online
 

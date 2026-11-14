@@ -32,11 +32,21 @@ test('server messages are validated by the client too', () => {
     t: 'snap', tick: 5, ack: 3,
     you: { x: 1, z: 2, yaw: 0.5 }, opp: { x: -1, z: -2, yaw: -3 },
     score: [1, 0],
-    ev: [{ k: 'shot', by: 'you', from: [0, 1.5, 0], to: [0, 1.6, -60] }, { k: 'hit', by: 'opp' }, { k: 'spawn', who: 'you', x: 3, z: 4 }],
+    ammo: 4,
+    next: 7.5,
+    ev: [
+      { k: 'throw', by: 'you', id: 7, from: [0, 1.5, 0], vel: [0, 2.78, -19.8] },
+      { k: 'splat', id: 7, at: [0, 0.15, -9.6] },
+      { k: 'hit', by: 'opp' },
+      { k: 'spawn', who: 'you', x: 3, z: 4 },
+    ],
   };
   assert.deepEqual(parseServerMessage(JSON.stringify(snap)), snap);
   assert.equal(parseServerMessage(JSON.stringify({ ...snap, you: { x: 1e9, z: 0, yaw: 0 } })), null);
   assert.equal(parseServerMessage(JSON.stringify({ ...snap, ev: [{ k: 'boom' }] })), null);
+  assert.equal(parseServerMessage(JSON.stringify({ ...snap, ammo: -1 })), null);
+  assert.equal(parseServerMessage(JSON.stringify({ ...snap, next: 11 })), null);
+  assert.equal(parseServerMessage(JSON.stringify({ ...snap, ev: [{ k: 'throw', by: 'you', id: 1, from: [0, 0, 0], vel: [999, 0, 0] }] })), null);
   assert.deepEqual(parseServerMessage('{"t":"reject","reason":"busy"}'), { t: 'reject', reason: 'busy' });
   assert.equal(parseServerMessage('{"t":"reject","reason":"whatever"}'), null);
   assert.deepEqual(parseServerMessage('{"t":"end","reason":"room_expired"}'), { t: 'end', reason: 'room_expired' });

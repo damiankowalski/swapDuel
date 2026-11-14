@@ -31,6 +31,8 @@ export interface Sample {
   /** A teleport was passed since the previous sample: reset any smoothing. */
   cut: boolean;
   extrapolating: boolean;
+  /** Server tick being shown (fractional): events such as snowball throws are drawn on the same clock. */
+  renderTick: number;
 }
 
 export class SnapshotInterpolator {
@@ -99,7 +101,7 @@ export class SnapshotInterpolator {
 
     const first = this.buffer[0]!;
     const last = this.buffer[this.buffer.length - 1]!;
-    if (renderTick <= first.tick) return { pose: { ...first.pose }, cut, extrapolating: false };
+    if (renderTick <= first.tick) return { pose: { ...first.pose }, cut, renderTick, extrapolating: false };
 
     if (renderTick >= last.tick) {
       if (!this.starving && renderTick > last.tick) {
@@ -108,7 +110,7 @@ export class SnapshotInterpolator {
       }
       const before = this.buffer[this.buffer.length - 2];
       const over = Math.min(renderTick - last.tick, MAX_EXTRAPOLATION / TICK_DT);
-      if (!before || last.cut || last.tick - before.tick !== 1) return { pose: { ...last.pose }, cut, extrapolating: true };
+      if (!before || last.cut || last.tick - before.tick !== 1) return { pose: { ...last.pose }, cut, renderTick, extrapolating: true };
       return {
         pose: {
           x: last.pose.x + (last.pose.x - before.pose.x) * over,
@@ -116,6 +118,7 @@ export class SnapshotInterpolator {
           yaw: wrapAngle(last.pose.yaw + wrapAngle(last.pose.yaw - before.pose.yaw) * over),
         },
         cut,
+        renderTick,
         extrapolating: true,
       };
     }
@@ -127,7 +130,7 @@ export class SnapshotInterpolator {
     const b = this.buffer[i + 1]!;
     // Drop what can no longer be needed.
     if (i > 2) this.buffer.splice(0, i - 2);
-    if (b.cut) return { pose: { ...a.pose }, cut, extrapolating: false };
+    if (b.cut) return { pose: { ...a.pose }, cut, renderTick, extrapolating: false };
     const t = (renderTick - a.tick) / (b.tick - a.tick);
     return {
       pose: {
@@ -136,6 +139,7 @@ export class SnapshotInterpolator {
         yaw: wrapAngle(a.pose.yaw + wrapAngle(b.pose.yaw - a.pose.yaw) * t),
       },
       cut,
+      renderTick,
       extrapolating: false,
     };
   }

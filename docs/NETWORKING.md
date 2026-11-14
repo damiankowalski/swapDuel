@@ -82,9 +82,13 @@ nothing about players, codes or addresses.
 - Inputs are *intents*, not positions: a bitmask (`forward`, `back`, `left`, `right`, `turnLeft`, `turnRight`,
   `fire`). The server applies its own speeds and turn rate, so a client cannot teleport or snap-turn. (Mouse aim in P4
   will send an absolute yaw, clamped to the maximum turn rate per tick.)
-- Fire: server-side cooldown 0.12 s (at 30 Hz a held trigger fires every 4th tick, 0.133 s); hit-scan from the shooter's eye along the shooter's yaw against the walls, the
-  crate and the opponent's hit shape (capsule as a vertical cylinder), at the tick the input is processed.
-- Hit -> score +1, the victim respawns at a server-chosen point (P4: brief invulnerability).
+- **Snowballs** (protocol v2, ADR-013; `shared/snowball.ts`). Each player starts with 5; one more every 10 s, no
+  cap (`MAX_AMMO`). A throw needs a new press of fire (`KEY_FIRE` going from 0 to 1 between two applied inputs), at
+  least 0.3 s after the previous throw, and a snowball in stock. It leaves the hand 0.5 m in front at 1.5 m height,
+  at 20 m/s and 8° above the horizon (about 18 m of range on flat ground), and falls with gravity.
+- The server moves every snowball each tick in 1/240 s physics steps against the other player's body (capsule) and
+  head (sphere), the crate, the walls and the floor. At most 64 snowballs fly at once; one melts after 4 s.
+- Hit -> score +1, the victim respawns at a server-chosen point and keeps its snowballs (P4: brief invulnerability).
 
 ## 6. Messages during a match
 
@@ -99,10 +103,12 @@ Server -> client, every tick:
 ```
 snap { tick, ack: last seq processed for this client,
        you: { x, z, yaw }, opp: { x, z, yaw },
-       score: [you, opp], ev: [ { k: "shot" | "hit" | "spawn", ... } ] }
+       score: [you, opp], ammo: your snowballs, next: seconds until the next one,
+       ev: [ throw { by, id, from, vel } | splat { id, at } | hit { by } | spawn { who, x, z } ] }
 ```
 
-Events carry tracer endpoints and respawns so both clients draw the same thing. `s` must grow (a repeated or older
+A `throw` carries the snowball's start and velocity: the flight is deterministic, so clients draw it without a
+position per tick, and `splat` says where and when it ended. `s` must grow (a repeated or older
 number closes the socket); the server keeps at most 4 *(tune)* queued inputs per player and drops the oldest beyond
 that (a client cannot "bank" moves). It applies one input per tick, two when more than two are queued.
 
@@ -111,8 +117,12 @@ that (a client cannot "bank" moves). It applies one input per tick, two when mor
 - The local player's movement is applied immediately with `shared/step` and kept in a list of unacknowledged inputs.
 - On each `snap`: take the server's `you` state at `ack`, replay the inputs after `ack`, compare with the predicted
   state. Small errors decay over about 100 ms *(tune)*; errors above 1 m snap.
-- Fire is *not* predicted for score: the client may draw its own tracer at once, but hits and score come only from
-  the server.
+- Throws are predicted: the client keeps a copy of the throwing rules, so its own snowball leaves the hand at once;
+  the stock shown is the server's minus throws not yet acknowledged. Hits and score come only from the server (our
+  own snowball may look like it hit, or missed, when the server decided otherwise).
+- The opponent's snowballs are drawn on the opponent's delayed clock (the interpolation's `renderTick`), from the
+  `throw` tick until the `splat` tick, so they leave the opponent's hand where we see the opponent.
+- A tap of fire shorter than one client tick is latched until the next tick, so it is never lost.
 
 ## 8. Opponent interpolation
 
@@ -129,9 +139,10 @@ that (a client cannot "bank" moves). It applies one input per tick, two when mor
 
 ## 9. Hits and latency (PoC limits)
 
-No lag compensation: the server tests the shot against the opponent's *current* server position, while the shooter
-sees the opponent about `RTT/2 + delay` in the past. The shooter therefore leads slightly. Acceptable for a PoC at
-normal pings; lag compensation (rewinding the target by the shooter's view delay) is on the "Later" list.
+No lag compensation: the server flies each snowball against the opponent's *current* server position, while the
+thrower sees the opponent about `RTT/2 + delay` in the past. With snowballs the thrower must lead a moving target
+anyway (about 0.5 s of flight over 10 m); the network adds a little to that lead. Lag compensation is on the "Later"
+list.
 
 ## 10. Reconnect
 

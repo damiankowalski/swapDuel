@@ -1,7 +1,12 @@
 // Movement of a human-controlled fighter.
 import { resolveCollisions } from './arena.ts';
-import { MOVE_SPEED, TURN_SPEED } from './constants.ts';
-import { forwardOf, rightOf, type Vec2 } from './math.ts';
+import { EYE_HEIGHT, MOVE_SPEED, TURN_SPEED } from './constants.ts';
+import { forwardOf, rightOf, type Vec2, type Vec3 } from './math.ts';
+
+/** The point a fighter at `pos` looks from. */
+export function eyeOf(pos: Vec2): Vec3 {
+  return { x: pos.x, y: EYE_HEIGHT, z: pos.z };
+}
 
 export interface PlayerState {
   pos: Vec2;

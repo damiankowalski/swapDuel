@@ -53,7 +53,14 @@ simulated lag yet; the lag simulator belongs to the network layer and arrives in
 Built as planned, with three scope changes (ADR-012): no `ready` step, no reconnect yet, and the camera criterion
 is "smooth with rare bridged starvations" (thresholds and measurements in `NETWORKING.md` §12).
 
-### P3 - Deployment · S-M · v0.4.0
+### P2.5 - Snowballs · M · v0.4.0 · *in review*
+
+Owner's request, ahead of P4 (ADR-013): snowballs (ballistic, 5 at the start, +1 every 10 s, no cap) replace the
+hit-scan laser in online play and training; protocol v2; HUD with the stock and a dashed arc showing the landing point.
+
+**Done when:** throws, flight, hits and the stock are server-side and tested; both modes play with snowballs.
+
+### P3 - Deployment · S-M · v0.5.0
 
 - `deploy/`: container image (non-root, read-only), compose file with an outbound tunnel connector, hardening as in
   `SECURITY.md`; image built and published by GitHub Actions on a tag (ADR-010); invite-only access gate (ADR-009).

@@ -4,21 +4,22 @@
 import * as THREE from 'three';
 import { createBot, respawnBot, stepBot, type BotState } from '../../shared/bot.ts';
 import {
+  AMMO_INTERVAL,
   ARENA_HALF,
   CRATE_HALF,
   CRATE_HEIGHT,
-  FIRE_INTERVAL,
-  HIT_COOLDOWN,
   MAX_FRAME_DT,
+  SNOWBALL_LIFETIME,
+  SNOWBALL_RADIUS,
   SPAWN_GUEST,
   SPAWN_HOST,
   WALL_HEIGHT,
   WALL_THICKNESS,
 } from '../../shared/constants.ts';
 import { lagFromParams } from '../../shared/lag.ts';
-import { aimDirection, type Vec3 } from '../../shared/math.ts';
+import type { Vec2, Vec3 } from '../../shared/math.ts';
 import { AngleFilter, CAMERA_POSITION_FILTER, CAMERA_YAW_FILTER, OneEuroFilter } from '../../shared/one-euro.ts';
-import { stepPlayer, type PlayerState } from '../../shared/player.ts';
+import { eyeOf, stepPlayer, type PlayerState } from '../../shared/player.ts';
 import {
   KEY_BACK,
   KEY_FIRE,
@@ -34,7 +35,16 @@ import {
   type RejectReason,
 } from '../../shared/protocol.ts';
 import { parseRoomCode } from '../../shared/room-code.ts';
-import { castShot, eyeOf, muzzleOf } from '../../shared/shot.ts';
+import {
+  createThrower,
+  launch,
+  positionAt,
+  pressFire,
+  secondsToNextSnowball,
+  stepSnowball,
+  tickThrower,
+  type Snowball,
+} from '../../shared/snowball.ts';
 import { fetchStatus, OnlineSession } from './net.ts';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -84,8 +94,6 @@ sun.position.set(6, 12, 4);
 scene.add(sun);
 
 // ---------- Arena ----------
-/** Walls and the crate: the reticle sticks to their surfaces. */
-const aimSolids: THREE.Object3D[] = [];
 function buildArena(): void {
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
@@ -103,7 +111,6 @@ function buildArena(): void {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_HEIGHT, d), wallMat);
     m.position.set(x, WALL_HEIGHT / 2, z);
     scene.add(m);
-    aimSolids.push(m);
   };
   const S = ARENA_HALF * 2;
   const t = WALL_THICKNESS;
@@ -118,7 +125,6 @@ function buildArena(): void {
   );
   crate.position.set(0, CRATE_HEIGHT / 2, 0);
   scene.add(crate);
-  aimSolids.push(crate);
 }
 buildArena();
 
@@ -162,22 +168,23 @@ let mode: 'online' | 'bot' | null = null;
 
 let session: OnlineSession | null = null;
 let tickAcc = 0;
-let localFireCd = 0;
 const camYaw = new AngleFilter(CAMERA_YAW_FILTER);
 const camX = new OneEuroFilter(CAMERA_POSITION_FILTER);
 const camZ = new OneEuroFilter(CAMERA_POSITION_FILTER);
 
-// score (training only; online the server keeps it)
+// score and snowballs (training only; online the server keeps them)
 let myScore = 0;
 let oppScore = 0;
-let hitCooldown = 0;
-let fireCd = 0;
+let thrower = createThrower();
 
 // ---------- Input ----------
 const keys: Record<string, boolean> = Object.create(null);
+/** A fire press is latched until the next simulation step uses it, so a quick tap between two steps still throws. */
+let firePressed = false;
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   keys[e.code] = true;
+  if (e.code === 'Space' && !e.repeat) firePressed = true;
   if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyV') toggleView();
 });
@@ -197,14 +204,22 @@ function keyMask(): number {
   if (keys['KeyD']) k |= KEY_RIGHT;
   if (keys['ArrowLeft']) k |= KEY_TURN_LEFT;
   if (keys['ArrowRight']) k |= KEY_TURN_RIGHT;
-  if (keys['Space']) k |= KEY_FIRE;
+  if (keys['Space'] || firePressed) k |= KEY_FIRE;
   return k;
+}
+
+/** Fire state for one simulation step; consumes a latched press. */
+function takeFire(): boolean {
+  const fire = !!keys['Space'] || firePressed;
+  firePressed = false;
+  return fire;
 }
 
 const startEl = byId('start');
 let playing = false;
 startEl.addEventListener('click', () => {
   playing = true;
+  firePressed = false;
   startEl.classList.add('hidden');
 });
 
@@ -245,6 +260,7 @@ function backToLobby(message = ''): void {
   session = null;
   mode = null;
   playing = false;
+  clearBalls();
   startEl.classList.add('hidden');
   byId('netStats').classList.add('hidden');
   byId('lobby').classList.remove('hidden');
@@ -266,7 +282,7 @@ async function openSession(panel: 'hostStatus' | 'joinStatus'): Promise<OnlineSe
         } else setStatus('joinStatus', 'Joined!');
       },
       onStart: (you, opp) => startOnline(you, opp),
-      onSnapshot: (score, events) => onSnapshot(score, events),
+      onSnapshot: (tick, score, events) => onSnapshot(tick, score, events),
       onReject: (reason) => {
         setStatus(panel, REJECT_TEXT[reason]);
         if (reason !== 'bad_code') {
@@ -328,6 +344,8 @@ function enterGame(status: string): void {
 
 function startBot(): void {
   mode = 'bot';
+  thrower = createThrower();
+  clearBalls();
   a.pos = { x: SPAWN_HOST.x, z: SPAWN_HOST.z };
   a.yaw = SPAWN_HOST.yaw;
   b = createBot({ x: SPAWN_GUEST.x, z: SPAWN_GUEST.z }, SPAWN_GUEST.yaw);
@@ -337,7 +355,7 @@ function startBot(): void {
 function startOnline(you: Pose, opp: Pose): void {
   mode = 'online';
   tickAcc = 0;
-  localFireCd = 0;
+  clearBalls();
   view.me = { ...you };
   view.opp = { ...opp };
   camYaw.reset();
@@ -364,23 +382,129 @@ function showHitmark(): void {
   setTimeout(() => hitmark.classList.remove('on'), 120);
 }
 
-const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a });
-function tracer(from: THREE.Vector3, to: THREE.Vector3): void {
-  const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-  const line = new THREE.Line(geo, tracerMat);
-  scene.add(line);
-  setTimeout(() => {
-    scene.remove(line);
-    geo.dispose();
-  }, 90);
+// ---------- Snowballs on screen ----------
+const ballGeo = new THREE.SphereGeometry(SNOWBALL_RADIUS, 14, 10);
+const ballMat = new THREE.MeshStandardMaterial({ color: 0xf2f7ff, roughness: 0.8 });
+const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+
+/** Our own snowballs (training, or predicted online): simulated here, visual only online. */
+interface LocalBall {
+  ball: Snowball;
+  mesh: THREE.Mesh;
+}
+/** The opponent's snowballs, drawn on the same delayed clock as the opponent. */
+interface RemoteBall {
+  id: number;
+  from: Vec3;
+  vel: Vec3;
+  tick: number;
+  splatTick: number | null;
+  splatAt: Vec3 | null;
+  mesh: THREE.Mesh;
+}
+let localBalls: LocalBall[] = [];
+let remoteBalls: RemoteBall[] = [];
+
+function ballMesh(): THREE.Mesh {
+  const m = new THREE.Mesh(ballGeo, ballMat);
+  scene.add(m);
+  return m;
 }
 
-function onSnapshot(score: [number, number], events: GameEvent[]): void {
+function removeMesh(m: THREE.Mesh): void {
+  scene.remove(m);
+}
+
+function clearBalls(): void {
+  for (const b of localBalls) removeMesh(b.mesh);
+  for (const b of remoteBalls) removeMesh(b.mesh);
+  localBalls = [];
+  remoteBalls = [];
+}
+
+function puff(at: Vec3): void {
+  const m = new THREE.Mesh(ballGeo, puffMat.clone());
+  m.position.set(at.x, at.y, at.z);
+  scene.add(m);
+  const started = performance.now();
+  const grow = () => {
+    const k = (performance.now() - started) / 220;
+    if (k >= 1) {
+      scene.remove(m);
+      (m.material as THREE.Material).dispose();
+      return;
+    }
+    m.scale.setScalar(1 + k * 3);
+    (m.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
+    requestAnimationFrame(grow);
+  };
+  grow();
+}
+
+function throwLocal(from: Vec2, yaw: number): void {
+  const start = launch(from, yaw);
+  localBalls.push({ ball: { id: 0, owner: 0, pos: start.pos, vel: start.vel, age: 0 }, mesh: ballMesh() });
+}
+
+/** Moves our own snowballs; `target` is the opponent as drawn. Returns true when one hits it. */
+function updateLocalBalls(dt: number, target: Vec2): boolean {
+  let hit = false;
+  localBalls = localBalls.filter((b) => {
+    const impact = stepSnowball(b.ball, dt, [{ seat: 1, pos: target }]);
+    if (!impact) {
+      b.mesh.position.set(b.ball.pos.x, b.ball.pos.y, b.ball.pos.z);
+      return true;
+    }
+    if (impact.kind === 'target') hit = true;
+    puff(impact.point);
+    removeMesh(b.mesh);
+    return false;
+  });
+  return hit;
+}
+
+function updateRemoteBalls(renderTick: number): void {
+  remoteBalls = remoteBalls.filter((b) => {
+    const t = (renderTick - b.tick + 1) * TICK_DT;
+    if (b.splatTick !== null && renderTick >= b.splatTick) {
+      if (b.splatAt) puff(b.splatAt);
+      removeMesh(b.mesh);
+      return false;
+    }
+    if (t > SNOWBALL_LIFETIME + 1) {
+      removeMesh(b.mesh);
+      return false;
+    }
+    b.mesh.visible = t >= 0;
+    const p = positionAt(b.from, b.vel, Math.max(0, t));
+    b.mesh.position.set(p.x, p.y, p.z);
+    return true;
+  });
+}
+
+function updateAmmoHud(ammo: number, next: number): void {
+  byId('ammoCount').textContent = String(ammo);
+  byId('ammoNext').textContent = next > 0 ? `+1 in ${Math.ceil(next)} s` : 'full';
+  byId('ammoBar').style.width = `${Math.max(0, Math.min(1, 1 - next / AMMO_INTERVAL)) * 100}%`;
+}
+
+function onSnapshot(tick: number, score: [number, number], events: GameEvent[]): void {
   [myScore, oppScore] = score;
   updateScoreboard();
   for (const e of events) {
-    if (e.k === 'shot' && e.by === 'opp') tracer(new THREE.Vector3(...e.from), new THREE.Vector3(...e.to));
-    else if (e.k === 'hit') {
+    if (e.k === 'throw' && e.by === 'opp') {
+      const [fx, fy, fz] = e.from;
+      const [vx, vy, vz] = e.vel;
+      remoteBalls.push({
+        id: e.id, from: { x: fx, y: fy, z: fz }, vel: { x: vx, y: vy, z: vz }, tick, splatTick: null, splatAt: null, mesh: ballMesh(),
+      });
+    } else if (e.k === 'splat') {
+      const remote = remoteBalls.find((b) => b.id === e.id);
+      if (remote) {
+        remote.splatTick = tick;
+        remote.splatAt = { x: e.at[0], y: e.at[1], z: e.at[2] };
+      }
+    } else if (e.k === 'hit') {
       if (e.by === 'you') showHitmark();
       else flashHit();
     }
@@ -388,19 +512,8 @@ function onSnapshot(score: [number, number], events: GameEvent[]): void {
 }
 
 // ---------- Training mode ----------
-function shootTraining(): void {
-  const shot = castShot(eyeOf(a.pos), aimDirection(a.yaw, a.pitch), b.pos);
-  tracer(toThree(muzzleOf(a.pos, a.yaw)), toThree(shot.point));
-  if (shot.hit === 'target' && hitCooldown <= 0) {
-    hitCooldown = HIT_COOLDOWN;
-    myScore++;
-    updateScoreboard();
-    showHitmark();
-    respawnBot(b, rng);
-  }
-}
-
 function updateTraining(dt: number): void {
+  tickThrower(thrower, dt);
   if (playing) {
     stepPlayer(
       a,
@@ -414,16 +527,16 @@ function updateTraining(dt: number): void {
       },
       dt,
     );
-    hitCooldown -= dt;
-    if (keys['Space']) {
-      fireCd -= dt;
-      if (fireCd <= 0) {
-        shootTraining();
-        fireCd = FIRE_INTERVAL;
-      }
-    } else fireCd = 0;
+    if (pressFire(thrower, takeFire())) throwLocal(a.pos, a.yaw);
   }
   stepBot(b, dt, rng);
+  if (updateLocalBalls(dt, b.pos)) {
+    myScore++;
+    updateScoreboard();
+    showHitmark();
+    respawnBot(b, rng);
+  }
+  updateAmmoHud(thrower.ammo, secondsToNextSnowball(thrower));
   view.me = { x: a.pos.x, z: a.pos.z, yaw: a.yaw };
   view.opp = { x: b.pos.x, z: b.pos.z, yaw: b.lookYaw };
 }
@@ -433,18 +546,10 @@ function updateOnline(dt: number, s: OnlineSession): void {
   tickAcc += dt;
   while (tickAcc >= TICK_DT) {
     tickAcc -= TICK_DT;
+    // Our own snowball leaves the hand at once; the server decides hits and score.
     const k = keyMask();
-    s.tick(k);
-    // Draw our own tracer at once; the server decides hits and score.
-    if (k & KEY_FIRE) {
-      localFireCd -= TICK_DT;
-      if (localFireCd <= 0 && s.predictor) {
-        localFireCd = FIRE_INTERVAL;
-        const me = s.predictor.state;
-        const shot = castShot(eyeOf(me.pos), aimDirection(me.yaw, 0), view.opp);
-        tracer(toThree(muzzleOf(me.pos, me.yaw)), toThree(shot.point));
-      }
-    } else localFireCd = 0;
+    firePressed = false;
+    if (s.tick(k, TICK_DT) && s.predictor) throwLocal(s.predictor.state.pos, s.predictor.state.yaw);
   }
   if (s.predictor) view.me = s.predictor.render(tickAcc / TICK_DT, dt);
   const sample = s.interp.sample(performance.now() / 1000);
@@ -455,7 +560,10 @@ function updateOnline(dt: number, s: OnlineSession): void {
       camZ.reset();
     }
     view.opp = sample.pose;
+    updateRemoteBalls(sample.renderTick);
   }
+  updateLocalBalls(dt, view.opp);
+  updateAmmoHud(s.ammo, s.nextSnowball);
   if (showNetStats) {
     const st = s.stats;
     byId('netStats').textContent =
@@ -492,15 +600,41 @@ function updateCamera(dt: number): void {
   }
 }
 
+// ---------- Aim: the arc of the next snowball and where it lands ----------
 const reticle = byId('reticle');
-const aimRay = new THREE.Raycaster();
-function updateReticle(): void {
-  const origin = toThree(eyeOf(view.me));
-  const dir = toThree(aimDirection(view.me.yaw, 0));
-  aimRay.set(origin, dir);
-  const hit = aimRay.intersectObjects(aimSolids, false)[0];
-  const point = hit ? hit.point.clone() : origin.clone().add(dir.multiplyScalar(50));
-  const p = point.project(camera);
+const ARC_POINTS = 200;
+const arcPositions = new Float32Array(ARC_POINTS * 3);
+const arcGeo = new THREE.BufferGeometry();
+arcGeo.setAttribute('position', new THREE.BufferAttribute(arcPositions, 3));
+const arc = new THREE.Line(arcGeo, new THREE.LineDashedMaterial({ color: 0xffb020, dashSize: 0.25, gapSize: 0.18, transparent: true, opacity: 0.55 }));
+arc.frustumCulled = false;
+scene.add(arc);
+
+function updateAim(): void {
+  arc.visible = mode !== null;
+  if (!arc.visible) {
+    reticle.style.display = 'none';
+    return;
+  }
+  const start = launch(view.me, view.me.yaw);
+  const ball: Snowball = { id: 0, owner: 0, pos: start.pos, vel: start.vel, age: 0 };
+  let n = 0;
+  let landing: Vec3 = { ...ball.pos };
+  while (n < ARC_POINTS - 1) {
+    arcPositions.set([ball.pos.x, ball.pos.y, ball.pos.z], n * 3);
+    n++;
+    const impact = stepSnowball(ball, 1 / 60, []);
+    if (impact) {
+      landing = impact.point;
+      break;
+    }
+  }
+  arcPositions.set([landing.x, landing.y, landing.z], n * 3);
+  arcGeo.setDrawRange(0, n + 1);
+  arcGeo.attributes['position']!.needsUpdate = true;
+  arc.computeLineDistances();
+
+  const p = toThree(landing).project(camera);
   if (p.z > 1 || p.z < -1) {
     reticle.style.display = 'none';
     return;
@@ -520,7 +654,7 @@ function animate(): void {
 
   placeMeshes();
   updateCamera(dt);
-  updateReticle();
+  updateAim();
   renderer.render(scene, camera);
 }
 placeMeshes();

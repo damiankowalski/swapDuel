@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runMatch } from './sim.ts';
 
-test('a headless 2-minute bot match keeps everyone in valid positions', () => {
+test('a headless 2-minute bot match stays valid and throws as the stock allows', () => {
   const r = runMatch({ seconds: 120, seed: 1 });
-  assert.equal(r.invalidPositions, 0);
+  assert.equal(r.invalid, 0);
   assert.equal(r.steps, 120 * 60);
-  // Fire every 0.12 s rounds up to every 8th 60 fps step: 900 shots in 120 s.
-  assert.deepEqual(r.shots, [900, 900]);
-  assert.ok(r.hits[0] + r.hits[1] > 0, 'random bots should land at least one hit in 2 minutes');
+  // One press a second: 5 at the start plus one at 10, 20, ... 110 s = 16 throws each.
+  assert.deepEqual(r.throws, [16, 16]);
+  assert.ok(r.inFlight <= 2);
 });
 
 test('the same seed gives the same match', () => {
