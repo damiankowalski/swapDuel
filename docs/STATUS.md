@@ -1,39 +1,32 @@
 # Status
 
-**Version:** v0.1.0 (commit `9366bb2`, 24 Aug 2026; no git tag or GitHub release exists yet) · **Package:** P0 in review
-· **Updated:** 14 Nov 2026
+**Version:** v0.2.0 candidate (P1 in review; last release commit v0.1.0 `9366bb2`, no git tag yet) ·
+**Updated:** 14 Nov 2026
 
 ## Works
 
-- One file, `index.html`: Three.js 0.160 and PeerJS 1.5.4 from unpkg, no build. Served by GitHub Pages from `main`.
-- **Training (bot):** the bot wanders and looks around at random; your hits score and respawn it.
-- **Online (P2P):** host gets a 5-character code, guest types it; PeerJS (public broker, STUN only) opens a WebRTC
-  data channel; each side sends its position and yaw about 30 times a second.
-- Controls: `WASD` move, arrows turn, `Space` fire (0.12 s auto-fire), `V` toggles view; projected amber reticle.
+- **Build:** Vite + TypeScript; `npm run build` gives one self-contained `dist/index.html` (about 600 KB, 155 KB
+  gzipped; no CDN at runtime). CI runs typecheck, 32 tests, a 2-minute headless match, the build and `npm audit`.
+- **Shared simulation** (`shared/`, no Three.js): movement, collisions, bot, hit-scan shots, room codes, P2P message
+  validation, headless bot-vs-bot match (`npm run sim`).
+- **Training (bot):** as in v0.1.0. **Online (P2P):** as in v0.1.0 (PeerJS public broker, STUN only), now with
+  incoming messages validated.
+- Controls: `WASD` move, arrows turn, `Space` fire (0.12 s auto-fire), `V` toggles view. UI in English.
+- **Changes from v0.1.0 (bug fixes only):** room codes use all 5 characters (the first was always `0`); the join
+  field accepts only a well-formed 5-character code; malformed P2P messages are ignored instead of corrupting the
+  scene. Hits are computed analytically against the fighter's capsule and head (same shapes as the mesh, so within
+  a few centimetres of v0.1.0's mesh raycast).
 
 ## Known problems
 
-- **NAT:** no TURN server, so double NAT / CGNAT players never connect (stuck on "connecting").
-- **Shooter decides hits:** the shooter's client raycasts against its own smoothed copy of the opponent and sends
-  `hit`; the victim obeys and respawns. Forging `hit` is trivial; each client keeps its own score.
-- **No validation and no protocol version:** incoming fields are used as-is (`NaN` or huge values break the scene).
-- **Room code:** `Math.random().toString(36)` starts with `0.`, so the first character is always `0` (4 random
-  characters in practice); IDs share the public broker's namespace (`swapduel-<code>`).
-- **Disconnects:** handled only by a status text in the hidden lobby; the game keeps running with a frozen opponent.
-- **Remote motion:** exponential smoothing, no interpolation buffer; in the default view the *camera* is the remote
-  player, so network jitter shakes the whole screen.
-- **Gameplay gaps:** no respawn protection, the bot never shoots, pitch is always 0 (no mouse / pointer lock although
-  the start screen implies it), no sound.
-- **Dependencies:** loaded from a CDN without integrity hashes; no `package.json` or lockfile.
-- **UI and code comments in Polish** (to translate in P1).
-
-## Technical debt
-
-No tests, no build, no CI, no type checking. Rendering, input, rules, bot and networking are mixed in one script;
-simulation constants and collision code need to move to `shared/` to be reused by the server and tests.
+- **NAT:** no TURN server, so double NAT / CGNAT players never connect (fixed by the server in P2).
+- **Shooter decides hits**, each client keeps its own score; no protocol version (P2).
+- **Disconnects:** only a status text in the hidden lobby; the game keeps running with a frozen opponent (P2).
+- **Remote motion:** exponential smoothing; the camera (the remote player) shakes with network jitter (P2, CAMERA).
+- **Gameplay gaps:** no respawn protection, the bot never shoots, pitch is always 0, no sound (P4).
+- GitHub Pages must be switched to "GitHub Actions" when P1 is merged (see the P1 pull request).
 
 ## Next step
 
-Damian reviews and merges the P0 pull requests (this repository and the private infrastructure one); the P0
-decisions are taken (ADR-007 to ADR-010). Then **P1**: restructuring into `client/` + `shared/` with
-Vite and TypeScript, no gameplay change.
+Damian merges P0, then P1 (switching Pages to GitHub Actions at the same time), tags `v0.2.0` and creates the
+release with `dist/index.html`. Then **P2**: the game server, locally.

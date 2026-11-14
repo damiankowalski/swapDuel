@@ -1,0 +1,10 @@
+{
+  // Guard for shared/: no DOM and no Node types, so the simulation stays runnable everywhere.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["shared/**/*.ts"],
+  "exclude": ["shared/**/*.test.ts"]
+}

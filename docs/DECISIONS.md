@@ -164,3 +164,17 @@ package `ghcr.io/damiankowalski/swapduel:X.Y.Z`. The server only pulls a named v
 
 **Reason.** The same image is tested and deployed; the server needs no build tools and no registry login (public
 repository, public package); rollback is pulling the previous tag.
+
+---
+
+## ADR-011 - Keep v0.1.0's library versions during the restructure
+
+**Date:** 2026-11-14 · **Status:** accepted
+
+**Decision.** P1 pins `three` at 0.160.0 and `peerjs` at 1.5.4 (exact versions, as v0.1.0 loaded them from the CDN).
+Upgrades come later as separate pull requests (Dependabot proposes them).
+
+**Alternatives.** Move to the latest Three.js in the same pull request.
+
+**Reason.** P1 must not change the game; newer Three.js releases change rendering defaults and APIs, which would mix
+a visual change into a structural one. A separate upgrade is easy to review and to revert.

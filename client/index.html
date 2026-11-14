@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Swap Duel — PoC</title>
+<style>
+  :root{
+    --you:   #4da3ff;   /* you (blue) */
+    --enemy: #ff5a5a;   /* opponent (red) */
+    --aim:   #ffb020;   /* reticle / accent */
+    --ink:   #e8edf2;
+    --panel: rgba(12,16,22,.72);
+    --line:  rgba(255,255,255,.14);
+    --mono:  ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:#0a0d12; overflow:hidden; }
+  canvas{ display:block; }
+
+  /* --- HUD --- */
+  .hud{ position:fixed; inset:0; pointer-events:none; font-family:var(--mono);
+        color:var(--ink); font-size:13px; line-height:1.5; }
+  .panel{ position:absolute; background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; padding:10px 12px; backdrop-filter:blur(6px);
+          -webkit-backdrop-filter:blur(6px); }
+  .tl{ top:14px; left:14px; max-width:320px; }
+  .tr{ top:14px; right:14px; min-width:190px; }
+  .bc{ left:50%; bottom:16px; transform:translateX(-50%); text-align:center;
+       white-space:nowrap; opacity:.85; }
+  .k{ display:inline-block; min-width:20px; padding:1px 6px; margin:0 1px;
+      border:1px solid var(--line); border-radius:5px; background:rgba(255,255,255,.05);
+      color:var(--ink); font-weight:600; }
+  .lbl{ letter-spacing:.14em; text-transform:uppercase; font-size:10px; opacity:.6; }
+  .you{ color:var(--you); }  .enemy{ color:var(--enemy); }  .aim{ color:var(--aim); }
+
+  /* --- Scoreboard --- */
+  .row{ display:flex; justify-content:space-between; align-items:baseline; gap:18px;
+        margin-top:6px; }
+  .row .name{ font-weight:600; letter-spacing:.02em; }
+  .row .val{ font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  /* centre of the screen = the point the opponent looks from */
+  #center{ position:fixed; left:50%; top:50%; width:16px; height:16px;
+           margin:-8px 0 0 -8px; pointer-events:none; opacity:.35; }
+  #center:before,#center:after{ content:""; position:absolute; background:var(--ink); }
+  #center:before{ left:7px; top:0; width:2px; height:16px; }
+  #center:after{ top:7px; left:0; height:2px; width:16px; }
+
+  /* your projected reticle: where the shot will really go */
+  #reticle{ position:fixed; width:26px; height:26px; margin:-13px 0 0 -13px;
+            border:2px solid var(--aim); border-radius:50%; pointer-events:none;
+            box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 0 10px rgba(255,176,32,.5); display:none; }
+  #reticle:before{ content:""; position:absolute; inset:9px; border-radius:50%;
+                   background:var(--aim); }
+
+  #hitmark{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%) scale(.6);
+            font:700 40px var(--mono); color:#57e08a; opacity:0; pointer-events:none;
+            transition:opacity .08s, transform .12s; }
+  #hitmark.on{ opacity:1; transform:translate(-50%,-50%) scale(1); }
+
+  /* red flash when you are hit */
+  #flash{ position:fixed; inset:0; pointer-events:none; background:#ff2a2a; opacity:0;
+          transition:opacity .16s; }
+  #flash.on{ opacity:.28; }
+
+  /* --- Overlays (lobby / start) --- */
+  .overlay{ position:fixed; inset:0; display:flex; flex-direction:column; gap:16px;
+            align-items:center; justify-content:center; text-align:center; z-index:5;
+            font-family:var(--mono); color:var(--ink);
+            background:radial-gradient(120% 120% at 50% 20%, rgba(20,28,40,.9), rgba(6,8,12,.97)); }
+  .overlay h1{ margin:0; font-size:26px; letter-spacing:.02em; }
+  .overlay .sub{ max-width:520px; opacity:.82; font-size:14px; line-height:1.6; }
+  .col{ display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .btn{ pointer-events:auto; cursor:pointer; font-family:var(--mono); font-size:15px;
+        font-weight:700; letter-spacing:.03em; color:#0a0d12; background:var(--aim);
+        border:1px solid var(--aim); border-radius:10px; padding:12px 22px; min-width:240px; }
+  .btn.ghost{ background:transparent; color:var(--ink); border-color:var(--line); font-weight:600; }
+  .btn:active{ transform:translateY(1px); }
+  .input{ pointer-events:auto; font-family:var(--mono); font-size:20px; text-align:center;
+          letter-spacing:.35em; text-transform:uppercase; width:240px; padding:12px;
+          border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.06);
+          color:var(--ink); }
+  .code{ font-size:34px; font-weight:800; letter-spacing:.35em; color:var(--aim);
+         background:rgba(255,176,32,.08); border:1px solid var(--aim); border-radius:12px;
+         padding:10px 18px; }
+  .status{ font-size:13px; opacity:.8; min-height:18px; }
+  #start{ cursor:pointer; }
+  #start .cta{ margin-top:6px; padding:12px 22px; border:1px solid var(--aim);
+               color:var(--aim); border-radius:10px; font-weight:700; letter-spacing:.06em; }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<div class="hud">
+  <div class="panel tl">
+    <div class="lbl">Controls</div>
+    <div><span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span> move &nbsp; <span class="k">&larr;</span><span class="k">&rarr;</span> turn</div>
+    <div><span class="k">Space</span> fire (hold = burst) &nbsp; <span class="k">V</span> view</div>
+    <div style="margin-top:8px; opacity:.8">
+      <span class="aim">◎</span> = your aim. You hit the opponent when it is at the centre of the screen.
+    </div>
+  </div>
+
+  <div class="panel tr">
+    <div class="lbl">Score</div>
+    <div class="row"><span class="name you">You</span><span class="val you" id="myScore">0</span></div>
+    <div class="row"><span class="name enemy">Opponent</span><span class="val enemy" id="oppScore">0</span></div>
+  </div>
+
+  <div class="panel bc" id="modeStatus">
+    You steer <span class="you">blue</span> — you see through <span class="enemy">red</span>'s eyes.
+  </div>
+</div>
+
+<div id="center"></div>
+<div id="reticle"></div>
+<div id="hitmark">HIT</div>
+<div id="flash"></div>
+
+<!-- LOBBY -->
+<div id="lobby" class="overlay">
+  <h1>Swap Duel — <span class="aim">PoC</span></h1>
+  <div class="sub">You see the world through your opponent's eyes, but you steer yourself. Play online with a friend or practise against a bot.</div>
+
+  <div id="choice" class="col">
+    <button class="btn" id="btnHost">Create online game</button>
+    <button class="btn" id="btnJoin">Join game</button>
+    <button class="btn ghost" id="btnBot">Training (bot)</button>
+  </div>
+
+  <div id="hostPanel" class="col hidden">
+    <div class="lbl">Your code — send it to a friend</div>
+    <div class="code" id="hostCode">—</div>
+    <div class="status" id="hostStatus"></div>
+    <button class="btn ghost" data-back>Back</button>
+  </div>
+
+  <div id="joinPanel" class="col hidden">
+    <div class="lbl">Enter your friend's code</div>
+    <input id="joinCode" class="input" maxlength="5" placeholder="code" autocomplete="off" />
+    <button class="btn" id="doJoin">Connect</button>
+    <div class="status" id="joinStatus"></div>
+    <button class="btn ghost" data-back>Back</button>
+  </div>
+</div>
+
+<!-- START -->
+<div id="start" class="overlay hidden">
+  <h1>Ready</h1>
+  <div class="sub">You steer <b class="you">blue</b>. You see through the eyes of your <b class="enemy">red</b> opponent.<br>
+    WASD move, &larr; &rarr; turn, Space fire, V toggles view.</div>
+  <div class="cta">Click to start</div>
+</div>
+
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

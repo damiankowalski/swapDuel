@@ -22,28 +22,26 @@ projected reticle sits at the centre of the screen (the point they look from).
 
 ## Repository map
 
-Today (v0.1.0):
+Today (P1, v0.2.0):
 
 ```
 swapduel/
-├─ index.html        the whole game: Three.js 0.160 + PeerJS 1.5.4 from a CDN, inline CSS and JS
-├─ AGENTS.md         this contract; CLAUDE.md = "@AGENTS.md"
-├─ docs/             STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT
-└─ README.md, LICENSE
+├─ client/                Vite entry: index.html (markup + CSS), src/main.ts (rendering, input, HUD, P2P mode)
+├─ shared/                pure TypeScript simulation: constants, math, arena collisions, player movement, bot,
+│                         hit-scan shots, room codes, P2P message validation, headless match; *.test.ts next to it
+├─ tools/sim.ts           CLI for the headless match (npm run sim)
+├─ docs/                  STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT
+├─ .github/               CI (typecheck, tests, sim, build, audit), Pages deployment, Dependabot
+├─ vite.config.ts         builds client/ to dist/index.html (one self-contained file)
+├─ tsconfig*.json         base options; shared guard (no DOM, no Node); client (DOM); Node side (tests, tools)
+└─ AGENTS.md, CLAUDE.md, README.md, LICENSE
 ```
 
-Target (built in P1-P3, see [`docs/ROADMAP.md`](docs/ROADMAP.md)):
+Still to come (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): `server/` (Node + `ws`: serves `dist/`, WebSocket `/ws`,
+`GET /status`; P2) and `deploy/` (image, compose file, runbook; P3).
 
-```
-swapduel/
-├─ client/           Vite + TypeScript, Three.js from npm; build -> dist/index.html (single file)
-├─ server/           Node + ws, TypeScript run directly by Node; serves dist/, WebSocket /ws, GET /status
-├─ shared/           pure TypeScript, no Three.js: arena, movement, collisions, hit raycast, protocol + version
-├─ docs/             as above
-└─ deploy/           container image, compose file, runbook
-```
-
-`shared/` must never import Three.js, DOM or Node APIs: the client, the server and headless tests all run it.
+`shared/` must never import Three.js, DOM or Node APIs (`tsconfig.shared.json` enforces it): the client, the
+server and headless tests all run it. Only `client/` may use Three.js.
 
 ## Toolchain
 
@@ -52,7 +50,8 @@ swapduel/
   allowed: no `enum`, no `namespace`, no constructor parameter properties; `tsconfig.json` sets
   `erasableSyntaxOnly`, `verbatimModuleSyntax` and `allowImportingTsExtensions`, and relative imports name the `.ts`
   extension. Node ignores `tsconfig.json` (no path aliases).
-- P1 adds `.nvmrc` (`26`) and `"engines": { "node": ">=26 <27" }` in `package.json`.
+- `.nvmrc` says `26`; `package.json` has `"engines": { "node": ">=26 <27" }`. TypeScript 7 (the native compiler)
+  does the type checking; Vite does the client build; Node runs tests and tools from the `.ts` sources.
 - Every task runs through `npm run …`; no `.sh`, `.bat` or `.ps1` scripts. The same commands work on macOS and
   Windows.
 - Dependencies are minimal: `three`, `ws`, `vite`, `vite-plugin-singlefile`, `typescript` and type packages. Any
@@ -60,19 +59,18 @@ swapduel/
 
 ## Commands
 
-Today there is no tooling: open `index.html` in a desktop browser (it needs internet for the CDN).
-
-From P1 on (planned names; keep them stable once they exist):
+Keep these names stable; CI runs the same ones.
 
 | Command | What it does |
 | --- | --- |
 | `npm ci` | Install exactly what the lockfile says |
-| `npm run dev` | Vite dev server for the client (bot mode; online mode from P2 with the local server) |
-| `npm run build` | Build the client to `dist/index.html` (one file) |
-| `npm run typecheck` | `tsc --noEmit` for client, server and shared |
-| `npm test` | `node --test` for `shared/` and `server/` |
-| `npm run sim` | Headless simulation of a match (bot vs bot, optional simulated lag) |
-| `npm run server` | Start the game server locally (serves `dist/`, `/ws`, `/status`) - from P2 |
+| `npm run dev` | Vite dev server on `http://127.0.0.1:5173` (bot mode works offline; P2P mode needs internet) |
+| `npm run build` | Build the client to `dist/index.html` (one self-contained file) |
+| `npm run preview` | Serve the built `dist/` locally |
+| `npm run typecheck` | `tsc` (no emit) for shared, client and the Node side |
+| `npm test` | `node --test` on `shared/**/*.test.ts` and `tools/**/*.test.ts` |
+| `npm run sim -- --seconds 300 --seed 1` | Headless bot-vs-bot match; fails if a fighter ever leaves the valid area |
+| `npm run server` | From P2: the game server locally (serves `dist/`, `/ws`, `/status`) |
 
 ## Standing rules
 
