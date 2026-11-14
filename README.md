@@ -1,44 +1,50 @@
 # Swap Duel
 
-Eksperymentalny **second-person shooter** (proof of concept). Sterujesz swoją
-postacią, ale ekran pokazuje świat **oczami przeciwnika** — żeby trafić, musisz
-nauczyć się celować „odwrotnie". Prosty duel 1v1 na kwadratowej arenie z jedną
-niezniszczalną skrzynią pośrodku.
+An experimental **second-person shooter** (proof of concept). You steer your own fighter, but the screen shows the
+world **through your opponent's eyes**: to hit, you have to learn to aim "backwards". A simple 1v1 duel on a square
+arena with one indestructible crate in the middle.
 
-Całość to pojedynczy plik `index.html` (Three.js + PeerJS z CDN). Bez instalacji,
-bez serwera — gra online działa peer-to-peer przez darmowy broker PeerJS.
+The current version (v0.1.0) is a single `index.html` (Three.js and PeerJS from a CDN). No install and no server:
+online play is peer-to-peer through the free PeerJS broker. An authoritative game server is planned - see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-## Sterowanie
+## Controls
 
-- **W A S D** — ruch
-- **← →** — obrót w lewo / prawo
-- **Spacja** — strzał (przytrzymaj = seria)
-- **V** — przełączenie widoku (oczami przeciwnika ↔ własne oczy)
+- **W A S D** - move
+- **<- ->** - turn left / right
+- **Space** - fire (hold for a burst)
+- **V** - toggle view (opponent's eyes <-> your own eyes)
 
-Bursztynowy celownik pokazuje, gdzie realnie poleci pocisk. Przeciwnika trafisz,
-gdy celownik znajdzie się na środku ekranu (środek = miejsce, z którego patrzy).
+The amber reticle shows where your shot will really go. You hit your opponent when the reticle is at the centre of
+the screen (the centre is the point they look from).
 
-## Jak grać online
+## Playing online
 
-1. Jedna osoba wybiera **Utwórz grę online** i dostaje 5-znakowy kod.
-2. Druga osoba wybiera **Dołącz do gry** i wpisuje ten kod.
-3. Po połączeniu każdy klika **Zacznij** i gracie.
+1. One player picks **Create online game** (*Utwórz grę online*) and gets a 5-character code.
+2. The other picks **Join game** (*Dołącz do gry*) and types the code.
+3. Once connected, each player clicks the start screen (*Kliknij, aby zacząć*).
 
-Jest też tryb **Trening (bot)** do gry solo.
+There is also a **Training (bot)** mode (*Trening (bot)*) for solo play.
 
-> Uwaga: w części sieci domowych czyste połączenie P2P (WebRTC) nie zestawi się
-> bez serwera TURN. Jeśli utyka na „Łączę...", to najczęściej ten przypadek.
+> Note: on some home networks a plain P2P (WebRTC) connection cannot be set up without a TURN server. If it hangs on
+> "connecting", that is the most likely cause. The planned game server removes this problem.
 
-## Uruchomienie lokalne
+The in-game text of v0.1.0 is still in Polish; it is translated in the next version.
 
-Otwórz `index.html` w przeglądarce na komputerze (Chrome/Edge/Firefox).
-Potrzebne jest połączenie z internetem, bo biblioteki ładują się z CDN.
+## Running locally
 
-## Status
+Open `index.html` in a desktop browser (Chrome, Edge, Firefox). An internet connection is needed because the
+libraries load from a CDN.
 
-Proof of concept — mechanika i tryb online do testów. Kolejne kroki: obsługa
-TURN dla trudnych sieci, dopracowanie trafień i respawnów, dźwięk.
+## Project docs
 
-## Licencja
+- [`docs/STATUS.md`](docs/STATUS.md) - what works, known problems, next step
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) - planned packages
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) - architecture decisions
+- [`docs/NETWORKING.md`](docs/NETWORKING.md), [`docs/SECURITY.md`](docs/SECURITY.md),
+  [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) - design of the online version
+- [`AGENTS.md`](AGENTS.md) - rules for coding agents working in this repository
 
-MIT — patrz plik `LICENSE`.
+## License
+
+MIT - see `LICENSE`.
