@@ -3,7 +3,9 @@
 import { SnapshotInterpolator } from '../../shared/interpolation.ts';
 import { LagSimulator, type LagOptions } from '../../shared/lag.ts';
 import { Predictor } from '../../shared/prediction.ts';
+import { createThrower, pressFire, tickThrower } from '../../shared/snowball.ts';
 import {
+  KEY_FIRE,
   parseServerMessage,
   parseStatus,
   PROTOCOL_VERSION,
@@ -19,7 +21,7 @@ import {
 export interface SessionHandlers {
   onRoom(code: string, seat: 0 | 1): void;
   onStart(you: Pose, opp: Pose): void;
-  onSnapshot(score: [number, number], events: GameEvent[]): void;
+  onSnapshot(tick: number, score: [number, number], events: GameEvent[]): void;
   onReject(reason: RejectReason): void;
   onEnd(reason: EndReason): void;
   onClosed(): void;
@@ -85,6 +87,13 @@ export class OnlineSession {
   private readonly sentAt = new Map<number, number>();
   private rtt = 0;
   private finished = false;
+  /** Local copy of the throwing rules, so our own snowballs leave the hand at once. The server's stock is the truth. */
+  private readonly thrower = createThrower();
+  /** Inputs not yet acknowledged that threw a snowball. */
+  private readonly pendingThrows = new Set<number>();
+  /** Snowballs and seconds to the next one, from the latest snapshot. */
+  serverAmmo = 0;
+  nextSnowball = 0;
 
   constructor(handlers: SessionHandlers, lag: LagOptions | null) {
     this.handlers = handlers;
@@ -137,12 +146,22 @@ export class OnlineSession {
     this.send({ t: 'join', code });
   }
 
-  /** One client tick: predict locally and send the input. */
-  tick(keys: number): void {
-    if (!this.predictor) return;
+  /** One client tick: predict locally and send the input. Returns true when this tick throws a snowball. */
+  tick(keys: number, dt: number): boolean {
+    if (!this.predictor) return false;
     const input = this.predictor.step(keys);
     this.sentAt.set(input.s, performance.now());
     this.send({ t: 'in', s: input.s, k: input.k });
+    tickThrower(this.thrower, dt);
+    this.thrower.ammo = this.ammo;
+    const threw = pressFire(this.thrower, (keys & KEY_FIRE) !== 0);
+    if (threw) this.pendingThrows.add(input.s);
+    return threw;
+  }
+
+  /** Snowballs we have, counting throws the server has not confirmed yet. */
+  get ammo(): number {
+    return Math.max(0, this.serverAmmo - this.pendingThrows.size);
   }
 
   leave(): void {
@@ -180,6 +199,7 @@ export class OnlineSession {
         return;
       case 'start':
         this.predictor = new Predictor(msg.you);
+        this.serverAmmo = this.thrower.ammo;
         this.interp.push(msg.tick, msg.opp, true, nowSec());
         this.handlers.onStart(msg.you, msg.opp);
         return;
@@ -192,9 +212,12 @@ export class OnlineSession {
           for (const s of this.sentAt.keys()) if (s <= msg.ack) this.sentAt.delete(s);
         }
         this.predictor.reconcile(msg.ack, msg.you);
+        for (const s of this.pendingThrows) if (s <= msg.ack) this.pendingThrows.delete(s);
+        this.serverAmmo = msg.ammo;
+        this.nextSnowball = msg.next;
         const oppTeleported = msg.ev.some((e) => e.k === 'spawn' && e.who === 'opp');
         this.interp.push(msg.tick, msg.opp, oppTeleported, nowSec());
-        this.handlers.onSnapshot(msg.score, msg.ev);
+        this.handlers.onSnapshot(msg.tick, msg.score, msg.ev);
         return;
       }
       case 'reject':
