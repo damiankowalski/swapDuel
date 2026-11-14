@@ -1,8 +1,7 @@
-// Swap Duel client: rendering, input, HUD and the temporary P2P online mode (PeerJS, replaced in P2).
-// Movement, collisions, the bot and hit detection come from shared/, so the server and tests use the same rules.
-import { Peer, type DataConnection } from 'peerjs';
+// Swap Duel client: rendering, input and HUD. Training runs the shared simulation locally; online play goes through
+// the authoritative game server (client/src/net.ts): the local fighter is predicted, the opponent interpolated, and
+// the camera - which is the opponent's eyes - filtered so network jitter does not shake the screen.
 import * as THREE from 'three';
-import { randomSpawnPoint } from '../../shared/arena.ts';
 import { createBot, respawnBot, stepBot, type BotState } from '../../shared/bot.ts';
 import {
   ARENA_HALF,
@@ -11,17 +10,32 @@ import {
   FIRE_INTERVAL,
   HIT_COOLDOWN,
   MAX_FRAME_DT,
-  SEND_INTERVAL,
   SPAWN_GUEST,
   SPAWN_HOST,
   WALL_HEIGHT,
   WALL_THICKNESS,
 } from '../../shared/constants.ts';
-import { aimDirection, approachAngle, lerpInPlace, type Vec2, type Vec3 } from '../../shared/math.ts';
-import { parsePeerMessage, type PeerMessage } from '../../shared/p2p-protocol.ts';
+import { lagFromParams } from '../../shared/lag.ts';
+import { aimDirection, type Vec3 } from '../../shared/math.ts';
+import { AngleFilter, CAMERA_POSITION_FILTER, CAMERA_YAW_FILTER, OneEuroFilter } from '../../shared/one-euro.ts';
 import { stepPlayer, type PlayerState } from '../../shared/player.ts';
-import { createRoomCode, parseRoomCode } from '../../shared/room-code.ts';
+import {
+  KEY_BACK,
+  KEY_FIRE,
+  KEY_FORWARD,
+  KEY_LEFT,
+  KEY_RIGHT,
+  KEY_TURN_LEFT,
+  KEY_TURN_RIGHT,
+  TICK_DT,
+  type EndReason,
+  type GameEvent,
+  type Pose,
+  type RejectReason,
+} from '../../shared/protocol.ts';
+import { parseRoomCode } from '../../shared/room-code.ts';
 import { castShot, eyeOf, muzzleOf } from '../../shared/shot.ts';
+import { fetchStatus, OnlineSession } from './net.ts';
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -30,16 +44,27 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
 }
 
 const rng = Math.random;
-const randomInt = (max: number): number => {
-  const a = new Uint32Array(1);
-  crypto.getRandomValues(a);
-  return a[0]! % max;
-};
 const toThree = (v: Vec3) => new THREE.Vector3(v.x, v.y, v.z);
-/** Remote peers' smoothing rate for position and yaw (1/s). */
-const REMOTE_SMOOTHING = 12;
-/** Peer IDs on the public PeerJS broker. */
-const PEER_PREFIX = 'swapduel-';
+const params = new URLSearchParams(location.search);
+/** Simulated network conditions, development builds only: ?lag=150&jitter=30&stall=0.02 */
+const lag = import.meta.env.DEV ? lagFromParams((k) => params.get(k)) : null;
+const showNetStats = import.meta.env.DEV && (params.has('debug') || lag !== null);
+
+const REJECT_TEXT: Record<RejectReason, string> = {
+  busy: 'A match is in progress — try again in a few minutes.',
+  full: 'That game is already full.',
+  bad_code: 'No game with that code.',
+  version: 'A new version is available — reload the page.',
+  timeout: 'The connection timed out — try again.',
+  protocol: 'The server refused the connection.',
+};
+const END_TEXT: Record<EndReason, string> = {
+  opponent_left: 'Your opponent left the match.',
+  time_limit: 'Time is up: matches last at most 20 minutes.',
+  idle: 'You were idle for too long.',
+  room_expired: 'Nobody joined in time. Create a new game to try again.',
+  server_shutdown: 'The server is restarting. Try again in a moment.',
+};
 
 // ---------- Scene / renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -124,38 +149,34 @@ const meshA = makeFighter(0x4da3ff); // you (local)
 const meshB = makeFighter(0xff5a5a); // opponent (remote or bot)
 
 // ---------- State ----------
+/** Training mode: the local fighter and the bot, simulated here. */
 const a: PlayerState = { pos: { x: SPAWN_HOST.x, z: SPAWN_HOST.z }, yaw: SPAWN_HOST.yaw, pitch: 0 };
 let b: BotState = createBot({ x: SPAWN_GUEST.x, z: SPAWN_GUEST.z }, SPAWN_GUEST.yaw);
-placeMeshes();
+
+/** What is drawn this frame (both modes). */
+const view = { me: { x: a.pos.x, z: a.pos.z, yaw: a.yaw } as Pose, opp: { x: b.pos.x, z: b.pos.z, yaw: b.lookYaw } as Pose };
 
 type ViewMode = 'enemy' | 'self';
 let viewMode: ViewMode = 'enemy'; // 'enemy' = through the opponent's eyes (default)
 let mode: 'online' | 'bot' | null = null;
-let online = false;
 
-// network
-let peer: Peer | null = null;
-let conn: DataConnection | null = null;
-const netPos: Vec2 = { x: SPAWN_GUEST.x, z: SPAWN_GUEST.z };
-let netYaw: number = SPAWN_GUEST.yaw;
+let session: OnlineSession | null = null;
+let tickAcc = 0;
+let localFireCd = 0;
+const camYaw = new AngleFilter(CAMERA_YAW_FILTER);
+const camX = new OneEuroFilter(CAMERA_POSITION_FILTER);
+const camZ = new OneEuroFilter(CAMERA_POSITION_FILTER);
 
-// score
+// score (training only; online the server keeps it)
 let myScore = 0;
 let oppScore = 0;
-let hitCooldown = 0; // brief immunity against counting one burst as several hits
-let sendAcc = 0;
+let hitCooldown = 0;
 let fireCd = 0;
-
-function placeMeshes(): void {
-  meshA.position.set(a.pos.x, 0, a.pos.z);
-  meshA.rotation.y = a.yaw;
-  meshB.position.set(b.pos.x, 0, b.pos.z);
-  meshB.rotation.y = b.lookYaw;
-}
 
 // ---------- Input ----------
 const keys: Record<string, boolean> = Object.create(null);
 addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return;
   keys[e.code] = true;
   if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyV') toggleView();
@@ -163,6 +184,22 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => {
   keys[e.code] = false;
 });
+addEventListener('blur', () => {
+  for (const k of Object.keys(keys)) keys[k] = false;
+});
+
+function keyMask(): number {
+  if (!playing) return 0;
+  let k = 0;
+  if (keys['KeyW']) k |= KEY_FORWARD;
+  if (keys['KeyS']) k |= KEY_BACK;
+  if (keys['KeyA']) k |= KEY_LEFT;
+  if (keys['KeyD']) k |= KEY_RIGHT;
+  if (keys['ArrowLeft']) k |= KEY_TURN_LEFT;
+  if (keys['ArrowRight']) k |= KEY_TURN_RIGHT;
+  if (keys['Space']) k |= KEY_FIRE;
+  return k;
+}
 
 const startEl = byId('start');
 let playing = false;
@@ -175,131 +212,139 @@ function toggleView(): void {
   viewMode = viewMode === 'enemy' ? 'self' : 'enemy';
 }
 
-// ---------- Network (PeerJS) ----------
-function netSend(msg: PeerMessage): void {
-  if (conn && conn.open) conn.send(msg);
-}
-
-function handleData(raw: unknown): void {
-  const msg = parsePeerMessage(raw);
-  if (!msg) return;
-  if (msg.t === 's') {
-    netPos.x = msg.x;
-    netPos.z = msg.z;
-    netYaw = msg.y;
-  } else if (msg.t === 'shot') {
-    tracer(new THREE.Vector3(msg.ox, msg.oy, msg.oz), new THREE.Vector3(msg.ex, msg.ey, msg.ez));
-  } else if (msg.t === 'hit') {
-    // We were hit.
-    oppScore++;
-    updateScoreboard();
-    flashHit();
-    a.pos = randomSpawnPoint(rng); // respawn at a random point
-  }
-}
-
-function hostGame(): void {
-  showPanel('hostPanel');
-  const code = createRoomCode(randomInt);
-  byId('hostCode').textContent = code.toUpperCase();
-  setStatus('hostStatus', 'Creating room...');
-  peer = new Peer(PEER_PREFIX + code);
-  peer.on('open', () => setStatus('hostStatus', 'Waiting for a player...'));
-  peer.on('error', (e) => setStatus('hostStatus', 'Error: ' + e.type));
-  peer.on('connection', (c) => {
-    conn = c;
-    c.on('open', () => {
-      setStatus('hostStatus', 'Connected!');
-      startMode('online', true);
-    });
-    c.on('data', handleData);
-    c.on('close', () => setStatus('hostStatus', 'Disconnected.'));
-  });
-}
-
-function joinGame(): void {
-  const code = parseRoomCode(byId<HTMLInputElement>('joinCode').value || '');
-  if (!code) {
-    setStatus('joinStatus', 'Enter the 5-character code.');
-    return;
-  }
-  setStatus('joinStatus', 'Connecting...');
-  const p = new Peer();
-  peer = p;
-  p.on('open', () => {
-    const c = p.connect(PEER_PREFIX + code);
-    conn = c;
-    c.on('open', () => {
-      setStatus('joinStatus', 'Connected!');
-      startMode('online', false);
-    });
-    c.on('data', handleData);
-    c.on('error', () => setStatus('joinStatus', 'Connection error.'));
-    c.on('close', () => setStatus('joinStatus', 'Disconnected.'));
-  });
-  p.on('error', (e) => setStatus('joinStatus', 'Error: ' + e.type + ' (wrong code?)'));
-}
+// ---------- Lobby ----------
+const btnHost = byId<HTMLButtonElement>('btnHost');
+const btnJoin = byId<HTMLButtonElement>('btnJoin');
 
 function setStatus(id: string, text: string): void {
   byId(id).textContent = text;
 }
 
-function showPanel(id: string): void {
-  byId('choice').classList.add('hidden');
-  byId('hostPanel').classList.add('hidden');
-  byId('joinPanel').classList.add('hidden');
-  byId(id).classList.remove('hidden');
+function showPanel(id: 'choice' | 'hostPanel' | 'joinPanel'): void {
+  for (const p of ['choice', 'hostPanel', 'joinPanel']) byId(p).classList.toggle('hidden', p !== id);
 }
 
-function backToChoice(): void {
-  if (peer) {
-    try {
-      peer.destroy();
-    } catch {
-      // already closed
-    }
+async function refreshServerStatus(): Promise<void> {
+  if (byId('lobby').classList.contains('hidden')) return;
+  const status = await fetchStatus();
+  if (!status) {
+    btnHost.disabled = true;
+    btnJoin.disabled = true;
+    setStatus('serverStatus', 'Online play is not available here. Training works offline.');
+  } else {
+    btnHost.disabled = status.state === 'busy';
+    btnJoin.disabled = false;
+    setStatus('serverStatus', status.state === 'busy' ? REJECT_TEXT.busy + ' (You can still join with a code.)' : '');
   }
-  peer = null;
-  conn = null;
-  byId('hostPanel').classList.add('hidden');
-  byId('joinPanel').classList.add('hidden');
-  byId('choice').classList.remove('hidden');
+}
+void refreshServerStatus();
+setInterval(() => void refreshServerStatus(), 5000);
+
+function backToLobby(message = ''): void {
+  session?.leave();
+  session = null;
+  mode = null;
+  playing = false;
+  startEl.classList.add('hidden');
+  byId('netStats').classList.add('hidden');
+  byId('lobby').classList.remove('hidden');
+  showPanel('choice');
+  setStatus('serverStatus', message);
+  void refreshServerStatus().then(() => {
+    if (message) setStatus('serverStatus', message);
+  });
 }
 
-byId('btnHost').onclick = hostGame;
-byId('btnJoin').onclick = () => showPanel('joinPanel');
-byId('btnBot').onclick = () => startMode('bot', false);
-byId('doJoin').onclick = joinGame;
-document.querySelectorAll<HTMLElement>('[data-back]').forEach((el) => (el.onclick = backToChoice));
+async function openSession(panel: 'hostStatus' | 'joinStatus'): Promise<OnlineSession | null> {
+  setStatus(panel, 'Connecting...');
+  const s = new OnlineSession(
+    {
+      onRoom: (code, seat) => {
+        if (seat === 0) {
+          byId('hostCode').textContent = code;
+          setStatus('hostStatus', 'Waiting for a player...');
+        } else setStatus('joinStatus', 'Joined!');
+      },
+      onStart: (you, opp) => startOnline(you, opp),
+      onSnapshot: (score, events) => onSnapshot(score, events),
+      onReject: (reason) => {
+        setStatus(panel, REJECT_TEXT[reason]);
+        if (reason !== 'bad_code') {
+          s.leave();
+          if (session === s) session = null;
+        }
+      },
+      onEnd: (reason) => backToLobby(END_TEXT[reason]),
+      onClosed: () => backToLobby('Connection to the server lost.'),
+    },
+    lag,
+  );
+  session = s;
+  if (!(await s.connect())) {
+    if (session === s) session = null;
+    setStatus(panel, 'Could not reach the game server.');
+    return null;
+  }
+  return s;
+}
+
+btnHost.onclick = async () => {
+  showPanel('hostPanel');
+  byId('hostCode').textContent = '—';
+  const s = await openSession('hostStatus');
+  if (s) {
+    setStatus('hostStatus', 'Creating room...');
+    s.create();
+  }
+};
+btnJoin.onclick = () => {
+  showPanel('joinPanel');
+  byId<HTMLInputElement>('joinCode').focus();
+};
+byId('doJoin').onclick = async () => {
+  const code = parseRoomCode(byId<HTMLInputElement>('joinCode').value || '');
+  if (!code) {
+    setStatus('joinStatus', 'Enter the 5-character code.');
+    return;
+  }
+  const s = session ?? (await openSession('joinStatus'));
+  if (s) {
+    setStatus('joinStatus', 'Joining...');
+    s.join(code);
+  }
+};
+byId('btnBot').onclick = () => startBot();
+document.querySelectorAll<HTMLElement>('[data-back]').forEach((el) => (el.onclick = () => backToLobby()));
 
 // ---------- Starting a match ----------
-function startMode(m: 'online' | 'bot', host: boolean): void {
-  mode = m;
-  online = m === 'online';
+function enterGame(status: string): void {
   myScore = 0;
   oppScore = 0;
   updateScoreboard();
-
-  const mine = online && !host ? SPAWN_GUEST : SPAWN_HOST;
-  const theirs = online && !host ? SPAWN_HOST : SPAWN_GUEST;
-  a.pos = { x: mine.x, z: mine.z };
-  a.yaw = mine.yaw;
-  b = createBot({ x: theirs.x, z: theirs.z }, theirs.yaw);
-
-  if (online) {
-    netPos.x = b.pos.x;
-    netPos.z = b.pos.z;
-    netYaw = b.lookYaw;
-    byId('modeStatus').innerHTML =
-      'Online — you steer <span class="you">blue</span>, you see through <span class="enemy">red</span>\'s eyes.';
-  } else {
-    byId('modeStatus').innerHTML =
-      'Training vs bot — <span class="you">blue</span> is you, you see through <span class="enemy">red</span>\'s eyes.';
-  }
-  placeMeshes();
-
+  byId('modeStatus').innerHTML = status;
   byId('lobby').classList.add('hidden');
   startEl.classList.remove('hidden');
+}
+
+function startBot(): void {
+  mode = 'bot';
+  a.pos = { x: SPAWN_HOST.x, z: SPAWN_HOST.z };
+  a.yaw = SPAWN_HOST.yaw;
+  b = createBot({ x: SPAWN_GUEST.x, z: SPAWN_GUEST.z }, SPAWN_GUEST.yaw);
+  enterGame('Training vs bot — <span class="you">blue</span> is you, you see through <span class="enemy">red</span>\'s eyes.');
+}
+
+function startOnline(you: Pose, opp: Pose): void {
+  mode = 'online';
+  tickAcc = 0;
+  localFireCd = 0;
+  view.me = { ...you };
+  view.opp = { ...opp };
+  camYaw.reset();
+  camX.reset();
+  camZ.reset();
+  if (showNetStats) byId('netStats').classList.remove('hidden');
+  enterGame('Online — you steer <span class="you">blue</span>, you see through <span class="enemy">red</span>\'s eyes.');
 }
 
 function updateScoreboard(): void {
@@ -307,31 +352,16 @@ function updateScoreboard(): void {
   byId('oppScore').textContent = String(oppScore);
 }
 
-// ---------- Shooting ----------
+// ---------- Effects ----------
 const hitmark = byId('hitmark');
 const flashEl = byId('flash');
 function flashHit(): void {
   flashEl.classList.add('on');
   setTimeout(() => flashEl.classList.remove('on'), 160);
 }
-
-function shoot(): void {
-  const shot = castShot(eyeOf(a.pos), aimDirection(a.yaw, a.pitch), b.pos);
-  const muzzle = muzzleOf(a.pos, a.yaw);
-  tracer(toThree(muzzle), toThree(shot.point));
-  if (online) {
-    netSend({ t: 'shot', ox: muzzle.x, oy: muzzle.y, oz: muzzle.z, ex: shot.point.x, ey: shot.point.y, ez: shot.point.z });
-  }
-
-  if (shot.hit === 'target' && hitCooldown <= 0) {
-    hitCooldown = HIT_COOLDOWN;
-    myScore++;
-    updateScoreboard();
-    hitmark.classList.add('on');
-    setTimeout(() => hitmark.classList.remove('on'), 120);
-    if (online) netSend({ t: 'hit' }); // the victim respawns itself
-    else respawnBot(b, rng);
-  }
+function showHitmark(): void {
+  hitmark.classList.add('on');
+  setTimeout(() => hitmark.classList.remove('on'), 120);
 }
 
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a });
@@ -345,31 +375,118 @@ function tracer(from: THREE.Vector3, to: THREE.Vector3): void {
   }, 90);
 }
 
-// ---------- Update ----------
-function updatePlayer(dt: number): void {
-  stepPlayer(
-    a,
-    {
-      forward: !!keys['KeyW'],
-      back: !!keys['KeyS'],
-      left: !!keys['KeyA'],
-      right: !!keys['KeyD'],
-      turnLeft: !!keys['ArrowLeft'],
-      turnRight: !!keys['ArrowRight'],
-    },
-    dt,
-  );
+function onSnapshot(score: [number, number], events: GameEvent[]): void {
+  [myScore, oppScore] = score;
+  updateScoreboard();
+  for (const e of events) {
+    if (e.k === 'shot' && e.by === 'opp') tracer(new THREE.Vector3(...e.from), new THREE.Vector3(...e.to));
+    else if (e.k === 'hit') {
+      if (e.by === 'you') showHitmark();
+      else flashHit();
+    }
+  }
 }
 
-function updateCamera(): void {
+// ---------- Training mode ----------
+function shootTraining(): void {
+  const shot = castShot(eyeOf(a.pos), aimDirection(a.yaw, a.pitch), b.pos);
+  tracer(toThree(muzzleOf(a.pos, a.yaw)), toThree(shot.point));
+  if (shot.hit === 'target' && hitCooldown <= 0) {
+    hitCooldown = HIT_COOLDOWN;
+    myScore++;
+    updateScoreboard();
+    showHitmark();
+    respawnBot(b, rng);
+  }
+}
+
+function updateTraining(dt: number): void {
+  if (playing) {
+    stepPlayer(
+      a,
+      {
+        forward: !!keys['KeyW'],
+        back: !!keys['KeyS'],
+        left: !!keys['KeyA'],
+        right: !!keys['KeyD'],
+        turnLeft: !!keys['ArrowLeft'],
+        turnRight: !!keys['ArrowRight'],
+      },
+      dt,
+    );
+    hitCooldown -= dt;
+    if (keys['Space']) {
+      fireCd -= dt;
+      if (fireCd <= 0) {
+        shootTraining();
+        fireCd = FIRE_INTERVAL;
+      }
+    } else fireCd = 0;
+  }
+  stepBot(b, dt, rng);
+  view.me = { x: a.pos.x, z: a.pos.z, yaw: a.yaw };
+  view.opp = { x: b.pos.x, z: b.pos.z, yaw: b.lookYaw };
+}
+
+// ---------- Online mode ----------
+function updateOnline(dt: number, s: OnlineSession): void {
+  tickAcc += dt;
+  while (tickAcc >= TICK_DT) {
+    tickAcc -= TICK_DT;
+    const k = keyMask();
+    s.tick(k);
+    // Draw our own tracer at once; the server decides hits and score.
+    if (k & KEY_FIRE) {
+      localFireCd -= TICK_DT;
+      if (localFireCd <= 0 && s.predictor) {
+        localFireCd = FIRE_INTERVAL;
+        const me = s.predictor.state;
+        const shot = castShot(eyeOf(me.pos), aimDirection(me.yaw, 0), view.opp);
+        tracer(toThree(muzzleOf(me.pos, me.yaw)), toThree(shot.point));
+      }
+    } else localFireCd = 0;
+  }
+  if (s.predictor) view.me = s.predictor.render(tickAcc / TICK_DT, dt);
+  const sample = s.interp.sample(performance.now() / 1000);
+  if (sample) {
+    if (sample.cut) {
+      camYaw.reset();
+      camX.reset();
+      camZ.reset();
+    }
+    view.opp = sample.pose;
+  }
+  if (showNetStats) {
+    const st = s.stats;
+    byId('netStats').textContent =
+      `rtt ${st.rttMs.toFixed(0)} ms   delay ${st.delayMs.toFixed(0)} ms   jitter ${st.jitterMs.toFixed(0)} ms\n` +
+      `starvations ${st.starvations}   corrections ${st.corrections} (last ${st.lastCorrection.toFixed(2)} m)` +
+      (lag ? `\nsimulated: ${lag.delayMs} ms +- ${lag.jitterMs} ms, stalls ${lag.stallChance}` : '');
+  }
+}
+
+// ---------- Rendering ----------
+function placeMeshes(): void {
+  meshA.position.set(view.me.x, 0, view.me.z);
+  meshA.rotation.y = view.me.yaw;
+  meshB.position.set(view.opp.x, 0, view.opp.z);
+  meshB.rotation.y = view.opp.yaw;
+}
+
+function updateCamera(dt: number): void {
   if (viewMode === 'enemy') {
-    camera.position.set(b.pos.x, eyeOf(b.pos).y, b.pos.z);
-    camera.rotation.set(0, b.lookYaw, 0, 'YXZ'); // you see where the opponent looks
+    // The camera is the opponent: online it is filtered so network jitter does not shake the screen.
+    const filtered = mode === 'online';
+    const x = filtered ? camX.filter(view.opp.x, dt) : view.opp.x;
+    const z = filtered ? camZ.filter(view.opp.z, dt) : view.opp.z;
+    const yaw = filtered ? camYaw.filter(view.opp.yaw, dt) : view.opp.yaw;
+    camera.position.set(x, eyeOf(view.opp).y, z);
+    camera.rotation.set(0, yaw, 0, 'YXZ'); // you see where the opponent looks
     meshA.visible = true;
     meshB.visible = false;
   } else {
-    camera.position.set(a.pos.x, eyeOf(a.pos).y, a.pos.z);
-    camera.rotation.set(0, a.yaw, 0, 'YXZ');
+    camera.position.set(view.me.x, eyeOf(view.me).y, view.me.z);
+    camera.rotation.set(0, view.me.yaw, 0, 'YXZ');
     meshA.visible = false;
     meshB.visible = true;
   }
@@ -378,8 +495,8 @@ function updateCamera(): void {
 const reticle = byId('reticle');
 const aimRay = new THREE.Raycaster();
 function updateReticle(): void {
-  const origin = toThree(eyeOf(a.pos));
-  const dir = toThree(aimDirection(a.yaw, a.pitch));
+  const origin = toThree(eyeOf(view.me));
+  const dir = toThree(aimDirection(view.me.yaw, 0));
   aimRay.set(origin, dir);
   const hit = aimRay.intersectObjects(aimSolids, false)[0];
   const point = hit ? hit.point.clone() : origin.clone().add(dir.multiplyScalar(50));
@@ -398,35 +515,15 @@ function animate(): void {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), MAX_FRAME_DT);
 
-  if (playing) {
-    updatePlayer(dt);
-    hitCooldown -= dt;
-    if (keys['Space']) {
-      fireCd -= dt;
-      if (fireCd <= 0) {
-        shoot();
-        fireCd = FIRE_INTERVAL;
-      }
-    } else fireCd = 0;
-  }
-
-  if (online) {
-    lerpInPlace(b.pos, netPos, Math.min(1, dt * REMOTE_SMOOTHING));
-    b.lookYaw = approachAngle(b.lookYaw, netYaw, dt * REMOTE_SMOOTHING);
-    sendAcc += dt;
-    if (sendAcc >= SEND_INTERVAL) {
-      sendAcc = 0;
-      netSend({ t: 's', x: a.pos.x, z: a.pos.z, y: a.yaw });
-    }
-  } else if (mode === 'bot') {
-    stepBot(b, dt, rng);
-  }
+  if (mode === 'online' && session) updateOnline(dt, session);
+  else if (mode === 'bot') updateTraining(dt);
 
   placeMeshes();
-  updateCamera();
+  updateCamera(dt);
   updateReticle();
   renderer.render(scene, camera);
 }
+placeMeshes();
 animate();
 
 addEventListener('resize', () => {

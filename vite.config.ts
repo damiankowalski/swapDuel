@@ -12,5 +12,10 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
+    // npm run dev + npm run server: the dev page talks to the local game server through the same origin.
+    proxy: {
+      '/ws': { target: 'ws://127.0.0.1:8080', ws: true },
+      '/status': 'http://127.0.0.1:8080',
+    },
   },
 });
