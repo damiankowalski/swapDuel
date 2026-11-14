@@ -60,7 +60,7 @@ hit-scan laser in online play and training; protocol v2; HUD with the stock and 
 
 **Done when:** throws, flight, hits and the stock are server-side and tested; both modes play with snowballs.
 
-### P3 - Deployment · S-M · v0.5.0
+### P3 - Deployment · S-M · v0.5.0 · *in review; then the owner deploys*
 
 - `deploy/`: container image (non-root, read-only), compose file with an outbound tunnel connector, hardening as in
   `SECURITY.md`; image built and published by GitHub Actions on a tag (ADR-010); invite-only access gate (ADR-009).
@@ -69,6 +69,9 @@ hit-scan laser in online play and training; protocol v2; HUD with the stock and 
 - Security checklist from `SECURITY.md` ticked off; GitHub Pages switched off or turned into a redirect.
 
 **Done when:** the owner deploys by the runbook; a match home Wi-Fi <-> mobile LTE works; the checklist is complete.
+
+Built: `deploy/` (Dockerfile, compose file, env template), the CI job that starts the hardened image, the release
+workflow, `DEPLOYMENT.md`; the server-side runbook and the playbook part are in the infrastructure repository.
 
 ## Later
 

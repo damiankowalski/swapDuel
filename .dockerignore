@@ -1,0 +1,12 @@
+# Only what the image build needs is sent to Docker.
+.git
+.github
+.claude
+node_modules
+dist
+docs
+deploy
+*.md
+KICKOFF.md
+.env
+.env.*

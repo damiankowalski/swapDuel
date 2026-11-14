@@ -43,7 +43,8 @@ swapduel/
 └─ AGENTS.md, CLAUDE.md, README.md, LICENSE
 ```
 
-Still to come (see [`docs/ROADMAP.md`](docs/ROADMAP.md)): `deploy/` (image, compose file, runbook; P3).
+`deploy/` holds the container image (`Dockerfile`), the compose file and the `.env` template (P3,
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)); `.github/workflows/release.yml` publishes the image on a `vX.Y.Z` tag.
 
 `shared/` must never import Three.js, DOM or Node APIs (`tsconfig.shared.json` enforces it): the client, the
 server and headless tests all run it. Only `client/` may use Three.js.

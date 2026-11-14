@@ -1,62 +1,59 @@
 # Deployment
 
-Status: **draft** (P0). The real files arrive in `deploy/` in P3. This file contains no details of the server; the
-owner keeps those in a private infrastructure repository. The agent never deploys (ADR-006): it prepares the files
-and a runbook, the owner runs it.
+How the game is released and deployed. Deliberately generic: this repository is public, so the details of the
+server it runs on (folders, accounts, the tunnel provider's settings, the exact runbook) live in the owner's private
+infrastructure repository. The agent never deploys (ADR-006): it prepares the files, the owner runs them.
 
 ## 1. Target
 
-- Public address: `https://swapduel.damiankowalski.pl` - page, WebSocket `/ws` and `GET /status` on one origin
-  (ADR-004).
+- Public address: `https://swapduel.damiankowalski.pl`: page, WebSocket `/ws` and `GET /status` on one origin
+  (ADR-004). The first deployment is behind an invite-only access gate at the edge (ADR-009).
 - One container image with the built client and the server, plus an outbound tunnel connector; Docker Compose; no
   published ports (ADR-007, `SECURITY.md` §4).
-- First deployment behind an invite-only access gate at the edge (ADR-009).
 
-## 2. Release pipeline (P3)
+## 2. Files
 
-1. A pull request is merged into `main` (CI green: typecheck, tests, build, audit).
-2. The owner tags `vX.Y.Z` and creates the GitHub release.
-3. GitHub Actions on the tag: builds the client (`npm run build`), builds the image, pushes it to the GitHub Container
-   Registry as `ghcr.io/damiankowalski/swapduel:X.Y.Z` (never only `latest`), attaches `dist/index.html` to the
-   release (archive copy; runs only bot mode when downloaded).
+| File | What it is |
+| --- | --- |
+| `deploy/Dockerfile` | Two stages: builds `dist/` with Vite, then a slim Node 26 runtime with `server/`, `shared/`, `dist/` and the production dependency `ws`; npm removed; runs as user `node` (uid 1000); a local health check on `GET /status` |
+| `deploy/compose.yaml` | Project `swapduel`: `server` (only on the internal network `game`) and `cloudflared` (on `game` and `egress`); both read-only, all capabilities dropped, `no-new-privileges`, memory / CPU / process limits; log rotation |
+| `deploy/env.example` | Template of `.env`: `SWAPDUEL_VERSION` and `TUNNEL_TOKEN` (the only secret) |
+| `.dockerignore` | Keeps the build context to the code |
+| `.github/workflows/ci.yml` (job `image`) | On every pull request: builds the image, validates the compose file, starts the image with the production hardening and checks `/status`, the CSP header, a 404, uid 1000, no npm, a read-only file system |
+| `.github/workflows/release.yml` | On a tag `vX.Y.Z`: checks it matches `package.json`, builds and pushes `ghcr.io/damiankowalski/swapduel:X.Y.Z` |
 
-## 3. Image
+Server settings are environment variables (`server/config.ts`, `NETWORKING.md` §2). The compose file sets
+`HOST=0.0.0.0` (inside the container, on the internal network only), `PORT=8080`, `MAX_ROOMS=1`,
+`ALLOWED_ORIGINS=https://swapduel.damiankowalski.pl` and `CLIENT_IP_HEADER=cf-connecting-ip` (the header the edge sets).
 
-- Multi-stage build: stage 1 installs dependencies with `npm ci` and builds `dist/`; stage 2 is a minimal Node 26
-  runtime with only `server/`, `shared/`, production `node_modules` (`ws`) and `dist/`.
-- Runs as a non-root user; no shell tools needed at runtime; `HEALTHCHECK` not used (the process has no outbound
-  network; the runtime's restart policy covers crashes).
-- Starts with `node server/main.ts`; reads its configuration from the environment.
+## 3. Releasing a version
 
-## 4. Compose file (shape)
+1. Every package is merged into `main` with CI green; `package.json` has the new version.
+2. The owner tags and creates the release from an up-to-date `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`,
+   then `npm ci && npm run build` and `gh release create vX.Y.Z dist/index.html --title vX.Y.Z --generate-notes`.
+3. The "Release image" workflow publishes `ghcr.io/damiankowalski/swapduel:X.Y.Z`. The first time only: in the
+   package settings on GitHub, set the package's visibility to **public** (the repository is public), so the server
+   can pull it without a registry login.
 
-```yaml
-name: swapduel
-networks:
-  game: { internal: true }   # game <-> connector only
-  egress: {}                 # connector -> tunnel provider
-services:
-  server:      # the game; only on "game"; non-root, read-only, cap_drop ALL, no-new-privileges, limits
-  connector:   # outbound tunnel; on "game" and "egress"; token from the server's .env
-```
+## 4. Deploying (outline)
 
-Environment of `server` (all variables: `server/config.ts`, `NETWORKING.md` §2): `HOST=0.0.0.0`, `PORT=8080`,
-`MAX_ROOMS=1`, `ALLOWED_ORIGINS=https://swapduel.damiankowalski.pl`, `CLIENT_IP_HEADER` (the edge's client-IP
-header). The compose file also uses `SWAPDUEL_VERSION` (image tag). The only secret, the tunnel token, is in an
-environment file on the server, readable by root only, never in git.
+The step-by-step runbook, with the server's paths, the tunnel and access gate settings and the checks, is in the
+private infrastructure repository. In outline:
 
-## 5. Runbook outline (written in full in P3)
+1. **Once:** a folder on the server for the compose project (root only), the repository cloned on the server, a
+   tunnel whose public host name routes to `http://server:8080`, the access gate, `.env` from `deploy/env.example`.
+2. **Each version:** pull the repository on the server (for `deploy/compose.yaml`), copy the compose file to the
+   project folder, set `SWAPDUEL_VERSION`, then `docker compose pull` and `docker compose up -d`.
+3. **Verify:** `docker compose ps` shows both containers running and the server healthy; `GET /status` through the
+   public address; the isolation checks and the rest of `SECURITY.md` §6; a match between two networks (home
+   Wi-Fi and mobile data).
+4. **Rollback:** set `SWAPDUEL_VERSION` back to the previous version and `docker compose up -d`. No data to migrate:
+   the game keeps nothing.
+5. **After the first deployment:** GitHub Pages is switched off (or replaced by a redirect page).
 
-1. **Check first:** the server folder and its `.env` exist; the tunnel route points to the `server` service on port
-   8080; no other process uses the names.
-2. **Deploy:** `git pull` of the game repository on the server; set `SWAPDUEL_VERSION`; `docker compose pull`;
-   `docker compose up -d`.
-3. **Verify:** `GET /status` through the public address says `free`; a match from two devices on different networks
-   (home Wi-Fi and mobile LTE); the security checklist in `SECURITY.md` §6.
-4. **Rollback:** set `SWAPDUEL_VERSION` back to the previous tag; `docker compose up -d`. No data to migrate.
-5. **Switch off GitHub Pages** (or leave a redirect page) after the first successful deployment.
-
-## 6. Local equivalent
+## 5. Local equivalent
 
 `npm run play` (build + server) runs the same server on `http://127.0.0.1:8080`, which by default accepts the
-local origins; two tabs play against each other. The lag simulator works in dev builds (`AGENTS.md`, Commands).
+local origins; two windows play against each other. The lag simulator works in dev builds (`AGENTS.md`, Commands).
+With Docker installed, the image can be tried locally too:
+`docker build -f deploy/Dockerfile -t swapduel . && docker run --rm -e HOST=0.0.0.0 -e ALLOWED_ORIGINS=http://127.0.0.1:8080 -p 127.0.0.1:8080:8080 swapduel`.

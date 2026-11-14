@@ -1,0 +1,65 @@
+# Swap Duel on the server (docs/DEPLOYMENT.md, ADR-007): the game server and an outbound tunnel connector.
+#
+# No container publishes a port. The connector (cloudflared) connects out to the tunnel provider and forwards the
+# requests for the public host name to http://server:8080 (set in the provider's dashboard).
+# The game server sits only on the "game" network, which is internal: it has no route to the internet, the host,
+# the cloud metadata service or other applications. Only the connector is also on "egress".
+#
+# Settings come from .env next to this file (template: env.example; never in git): the image version and the
+# tunnel token, the only secret. Docker Compose puts each value only into the container that names it.
+
+name: swapduel
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+networks:
+  game:
+    internal: true
+  egress: {}
+
+services:
+  server:
+    # Always a named version (SWAPDUEL_VERSION in .env, e.g. 0.5.0) - never "latest".
+    image: ghcr.io/damiankowalski/swapduel:${SWAPDUEL_VERSION:?set SWAPDUEL_VERSION in .env}
+    restart: unless-stopped
+    <<: *hardening
+    user: "1000:1000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      MAX_ROOMS: "1"
+      ALLOWED_ORIGINS: https://swapduel.damiankowalski.pl
+      CLIENT_IP_HEADER: cf-connecting-ip
+    networks: [game]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *logging
+
+  cloudflared:
+    # Pinned; update deliberately (a release at least two weeks old).
+    image: cloudflare/cloudflared:2026.10.7
+    restart: unless-stopped
+    <<: *hardening
+    tmpfs: [/tmp]
+    command: tunnel --no-autoupdate run
+    environment:
+      # Token of the game's own tunnel; whoever has it can serve the host name.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    networks: [game, egress]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    depends_on:
+      server:
+        condition: service_healthy
+    logging: *logging
