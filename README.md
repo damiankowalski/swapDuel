@@ -4,8 +4,9 @@ An experimental **second-person shooter** (proof of concept). You steer your own
 world **through your opponent's eyes**: to hit, you have to learn to aim "backwards". A simple 1v1 duel on a square
 arena with one indestructible crate in the middle.
 
-The game builds to a single self-contained `index.html` (Three.js and PeerJS bundled). No server of its own yet:
-online play is peer-to-peer through the free PeerJS broker. An authoritative game server is planned - see
+The client builds to a single self-contained `index.html` (Three.js bundled). Online matches run on a small
+authoritative game server (Node + WebSocket) that serves the page too; training against the bot runs entirely in the
+browser. An authoritative game server is planned - see
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Controls
@@ -26,13 +27,13 @@ the screen (the centre is the point they look from).
 
 There is also a **Training (bot)** mode for solo play.
 
-> Note: on some home networks a plain P2P (WebRTC) connection cannot be set up without a TURN server. If it hangs on
-> "connecting", that is the most likely cause. The planned game server removes this problem.
+The server runs one match at a time; while one is running, others see "A match is in progress". Online play needs
+the game server: opened from a downloaded file or from GitHub Pages, only training is available.
 
 ## Playing without installing anything
 
 Download `index.html` from the latest [release](https://github.com/damiankowalski/swapDuel/releases) and open it in
-a desktop browser (Chrome, Edge, Firefox). Training works offline; online play needs internet.
+a desktop browser (Chrome, Edge, Firefox). Training works offline.
 
 ## Development
 
@@ -40,9 +41,8 @@ Requires Node.js 26 (see `.nvmrc`). The same commands work on macOS and Windows:
 
 ```
 npm ci
-npm run dev        # http://127.0.0.1:5173
+npm run play       # build + game server: open two tabs at http://127.0.0.1:8080
 npm test
-npm run build      # dist/index.html
 ```
 
 All commands are listed in [`AGENTS.md`](AGENTS.md#commands).

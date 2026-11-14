@@ -35,7 +35,7 @@ cross-platform hygiene, server reconnaissance and security assessment (kept in t
 Built as planned; on top: P2P message validation and the room-code fix (`STATUS.md`). `npm run sim` has no
 simulated lag yet; the lag simulator belongs to the network layer and arrives in P2.
 
-### P2 - Server, locally · M-L · v0.3.0
+### P2 - Server, locally · M-L · v0.3.0 · *in review*
 
 - `server/`: Node + `ws`, serves `dist/`, WebSocket `/ws`, `GET /status`; configuration by environment variables
   (`HOST`, `PORT`, `MAX_ROOMS=1`, `ALLOWED_ORIGIN`, `CLIENT_IP_HEADER`, timeouts).
@@ -49,6 +49,9 @@ simulated lag yet; the lag simulator belongs to the network layer and arrives in
 
 **Done when:** two tabs play through localhost at 150 ms + jitter and the camera does not shake; a third tab gets
 "busy"; all tests green.
+
+Built as planned, with three scope changes (ADR-012): no `ready` step, no reconnect yet, and the camera criterion
+is "smooth with rare bridged starvations" (thresholds and measurements in `NETWORKING.md` §12).
 
 ### P3 - Deployment · S-M · v0.4.0
 
@@ -65,7 +68,8 @@ simulated lag yet; the lag simulator belongs to the network layer and arrives in
 ### P4+ - Gameplay · sizes later
 
 Respawn with brief invulnerability, sound, mouse aim (pointer lock, pitch), round/score rules, bot that fights back,
-reconnect into a running match. Scope decided after P3.
+reconnect into a running match (ADR-012), lag compensation, a per-IP room cool-down before opening the game to the
+public. Scope decided after P3.
 
 ## Decisions taken in P0
 

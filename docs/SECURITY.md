@@ -1,8 +1,9 @@
 # Security
 
 Threat model and protections of the game itself. Deliberately generic: this repository is public, so it contains no
-details of the infrastructure the game runs on. Status: **design** (P0); implemented in P2 (application) and P3
-(deployment), and updated with every server or deployment change.
+details of the infrastructure the game runs on. Status: the **application layer (§3) is implemented** (P2, tested in
+`server/app.test.ts`, `server/*.test.ts`, `shared/protocol.test.ts`); the process layer (§4) arrives with the
+deployment in P3. Updated with every server or deployment change.
 
 ## 1. What we protect
 
@@ -29,14 +30,16 @@ main question is not "can someone break the game" but "can a flaw in the game be
   finite numbers within range, integers where expected, strings matched by a strict pattern and length. An unknown
   type, a binary frame or any invalid field **closes the connection** (no "best effort" parsing). No `eval`, no
   dynamic `import()`, no object spreading of untrusted input into state (prototype pollution).
-- **Limits:** `maxPayload` 1 KB; per-socket rate limit (token bucket: input messages about 40/s, other messages about
-  5/s *(tune)*); connection caps per client IP and in total; a cap on pending handshakes with a 5 s timeout; heartbeat
-  ping/pong (dead sockets gone in about 10 s); `permessage-deflate` off.
-- **Origin:** the upgrade is accepted only when `Origin` exactly equals the configured public origin. Missing or other
-  origins get HTTP 403.
-- **Client IP:** taken from a configurable header set by the trusted front door, and only when that is configured;
-  otherwise the socket address. The header is trusted only because the process is unreachable except through the
-  front door (§4).
+- **Limits:** `maxPayload` 1 KB; per-socket rate limit (token bucket: input messages burst 10 then 40/s, other
+  messages burst 5 then 5/s); 5 wrong room codes close the socket; connection caps per client IP (4) and in total
+  (16); a cap on pending handshakes (8) with a 5 s timeout; heartbeat ping/pong every 5 s (dead sockets gone within
+  about 10 s); `permessage-deflate` off; input sequence numbers must grow and at most 4 inputs are queued.
+- **Origin:** the upgrade is accepted only when `Origin` exactly equals one of the configured origins
+  (`ALLOWED_ORIGINS`; the server refuses to start on a non-loopback address without it). Missing or other origins get
+  HTTP 403.
+- **Client IP:** taken from a configurable header set by the trusted front door (`CLIENT_IP_HEADER`), and only when
+  that is configured; otherwise the socket address. When configured and missing, the upgrade is refused (400). The
+  header is trusted only because the process is unreachable except through the front door (§4).
 - **One match at a time** (ADR-005) with timeouts, so floods of rooms are impossible and an abandoned tab cannot hold
   the slot.
 - **HTTP surface:** only `GET /`, the built static file, `GET /status` and the `/ws` upgrade; everything else 404. No
