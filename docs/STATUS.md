@@ -1,6 +1,6 @@
 # Status
 
-**Version:** v0.4.0 candidate (snowballs, P2.5; stacked on P2, P1, P0 in review; no tags yet)
+**Version:** v0.5.0 candidate (P3 deployment files; stacked on P2.5, P2, P1, P0 in review; no tags yet)
 · **Updated:** 14 Nov 2026
 
 ## Works
@@ -19,6 +19,9 @@
   landing point; protocol v2.
 - **Training (bot)** with snowballs; the bot still does not throw. 93 tests; CI as in P1.
 
+- **Deployment ready, not yet run:** container image (non-root, read-only, no npm), compose file with an internal
+  network and the tunnel connector, CI job that starts the hardened image, release workflow to GHCR on a tag.
+
 ## Known problems
 
 - **No reconnect:** a dropped connection ends the match for both (ADR-012).
@@ -36,5 +39,6 @@
 
 ## Next step
 
-Damian tries snowballs (`npm run play`, two windows), then merges P0, P1 (switching Pages to GitHub Actions), P2
-and P2.5. Then **P3**: deployment on the server by runbook.
+Damian merges P0, P1 (switching Pages to GitHub Actions), P2, P2.5 and P3 and the infrastructure pull requests,
+tags `v0.5.0` (release workflow publishes the image), then follows the server runbook in the infrastructure repository.
+P3 is done after a match home Wi-Fi <-> mobile data and the security checklist.

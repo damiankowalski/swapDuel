@@ -2,8 +2,9 @@
 
 Threat model and protections of the game itself. Deliberately generic: this repository is public, so it contains no
 details of the infrastructure the game runs on. Status: the **application layer (§3) is implemented** (P2, tested in
-`server/app.test.ts`, `server/*.test.ts`, `shared/protocol.test.ts`); the process layer (§4) arrives with the
-deployment in P3. Updated with every server or deployment change.
+`server/app.test.ts`, `server/*.test.ts`, `shared/protocol.test.ts`); the process layer (§4) is in `deploy/` (P3,
+checked by the CI job `image`) and is proven on the server by the checklist (§6). Updated with every server or
+deployment change.
 
 ## 1. What we protect
 
@@ -70,7 +71,7 @@ needs ammo, a new key press and 0.3 s since the last one, and at most 64 snowbal
 Audited separately and privately by the owner (exposure of other services, firewall, isolation between applications).
 Agents never change the server; they prepare runbooks the owner runs (ADR-006).
 
-## 6. Deployment checklist (ticked off in P3)
+## 6. Deployment checklist (ticked off by the owner at the first deployment; the runbook has the commands)
 
 - [ ] Image runs as non-root; file system read-only; capabilities dropped; `no-new-privileges`; resource limits set.
 - [ ] No published ports; the game container is only on the internal network.
