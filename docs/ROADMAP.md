@@ -9,14 +9,14 @@ Merge and release only after the owner approves. Versions are tagged at the end 
 
 ## Next
 
-### P0 - Bootstrap, reconnaissance, security · S-M · no release
+### P0 - Bootstrap, reconnaissance, security · S-M · no release · *in review*
 
 Agent contract (`AGENTS.md`), docs (`STATUS`, `ROADMAP`, `DECISIONS`, `NETWORKING`, `SECURITY`, `DEPLOYMENT`),
 cross-platform hygiene, server reconnaissance and security assessment (kept in the private infrastructure repository).
 
 **Done when:** both P0 pull requests (this repository and the infrastructure one) are approved and merged.
 
-### P1 - Restructure · M · v0.2.0
+### P1 - Restructure · M · v0.2.0 · *in review*
 
 - `client/` + `shared/`, Vite + TypeScript, Three.js from npm; `npm run build` gives one `dist/index.html`.
 - Game moved 1:1: same arena, movement, timings and bot. Simulation (movement, collisions, hit raycast, bot) moves to
@@ -31,6 +31,9 @@ cross-platform hygiene, server reconnaissance and security assessment (kept in t
   with PeerJS from npm (ADR-008).
 
 **Done when:** offline and bot mode behave as in v0.1.0; the build is a single `index.html`; CI is green.
+
+Built as planned; on top: P2P message validation and the room-code fix (`STATUS.md`). `npm run sim` has no
+simulated lag yet; the lag simulator belongs to the network layer and arrives in P2.
 
 ### P2 - Server, locally · M-L · v0.3.0
 

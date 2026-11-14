@@ -4,7 +4,7 @@ An experimental **second-person shooter** (proof of concept). You steer your own
 world **through your opponent's eyes**: to hit, you have to learn to aim "backwards". A simple 1v1 duel on a square
 arena with one indestructible crate in the middle.
 
-The current version (v0.1.0) is a single `index.html` (Three.js and PeerJS from a CDN). No install and no server:
+The game builds to a single self-contained `index.html` (Three.js and PeerJS bundled). No server of its own yet:
 online play is peer-to-peer through the free PeerJS broker. An authoritative game server is planned - see
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -20,21 +20,32 @@ the screen (the centre is the point they look from).
 
 ## Playing online
 
-1. One player picks **Create online game** (*Utwórz grę online*) and gets a 5-character code.
-2. The other picks **Join game** (*Dołącz do gry*) and types the code.
-3. Once connected, each player clicks the start screen (*Kliknij, aby zacząć*).
+1. One player picks **Create online game** and gets a 5-character code.
+2. The other picks **Join game** and types the code.
+3. Once connected, each player clicks **Click to start**.
 
-There is also a **Training (bot)** mode (*Trening (bot)*) for solo play.
+There is also a **Training (bot)** mode for solo play.
 
 > Note: on some home networks a plain P2P (WebRTC) connection cannot be set up without a TURN server. If it hangs on
 > "connecting", that is the most likely cause. The planned game server removes this problem.
 
-The in-game text of v0.1.0 is still in Polish; it is translated in the next version.
+## Playing without installing anything
 
-## Running locally
+Download `index.html` from the latest [release](https://github.com/damiankowalski/swapDuel/releases) and open it in
+a desktop browser (Chrome, Edge, Firefox). Training works offline; online play needs internet.
 
-Open `index.html` in a desktop browser (Chrome, Edge, Firefox). An internet connection is needed because the
-libraries load from a CDN.
+## Development
+
+Requires Node.js 26 (see `.nvmrc`). The same commands work on macOS and Windows:
+
+```
+npm ci
+npm run dev        # http://127.0.0.1:5173
+npm test
+npm run build      # dist/index.html
+```
+
+All commands are listed in [`AGENTS.md`](AGENTS.md#commands).
 
 ## Project docs
 
