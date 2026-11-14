@@ -6,11 +6,13 @@ disagree, say so before building anything large.
 ## The game
 
 **Swap Duel** is an experimental *second-person shooter* in the browser. You steer your own fighter, but the screen
-shows the arena **through your opponent's eyes**. To hit, you learn to aim "backwards": the opponent is hit when your
-projected reticle sits at the centre of the screen (the point they look from).
+shows the arena **through your opponent's eyes**. To hit, you learn to aim "backwards": the opponent stands at the centre
+of the screen (the point they look from), so you throw your snowball's arc towards the centre.
 
 - 1v1 on a square arena (20 x 20 m) with one indestructible crate in the middle.
-- Controls: `W A S D` move, `<-` `->` turn, `Space` fire (hold for a burst), `V` toggle view (opponent's eyes <-> own).
+- Controls: `W A S D` move, `<-` `->` turn, `Space` throw a snowball, `V` toggle view (opponent's eyes <-> own).
+- Snowballs fly in an arc (about 18 m); 5 at the start, one more every 10 s, no cap. A dashed arc and the reticle
+  show where the next one lands.
 - Modes: **online** (two players, a room code) and **training** against a bot (offline).
 - Current state, bugs and next step: [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -31,7 +33,7 @@ swapduel/
 ├─ server/                game server, TypeScript run directly by Node: app.ts (HTTP + WebSocket, limits),
 │                         rooms.ts (codes, MAX_ROOMS, timeouts), match.ts (authoritative 30 Hz simulation),
 │                         config.ts (environment), limits.ts, main.ts (entry); *.test.ts next to them
-├─ shared/                pure TypeScript: game rules (constants, arena, player, bot, shots, room codes), the
+├─ shared/                pure TypeScript: game rules (constants, arena, player, bot, snowballs, room codes), the
 │                         protocol, and the netcode (netsim, prediction, interpolation, One Euro filter, lag)
 ├─ tools/                 sim.ts (CLI), netplay.ts (headless network match for the camera metrics)
 ├─ docs/                  STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT

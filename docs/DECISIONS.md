@@ -198,3 +198,21 @@ so `ready` adds protocol for nothing. (2) Reconnect needs tokens, seat holds and
 to prove the server works and is easier to add once the deployment is real. (3) Zero starvations at ± 30 ms needs a
 much longer delay (more latency for everyone); the measured starvations are bridged by at most 100 ms of
 extrapolation and do not show in the camera metrics.
+
+---
+
+## ADR-013 - Snowballs instead of the hit-scan laser
+
+**Date:** 2026-11-14 · **Status:** accepted (owner's request; ahead of the P4 gameplay package)
+
+**Decision.** Players throw snowballs: ballistic projectiles with gravity (20 m/s, 8° up, about 18 m of range),
+one per press of fire, at least 0.3 s apart. Each player starts with 5 and gets one more every 10 s; the stock has
+no cap (`MAX_AMMO = Infinity`, the owner's choice; one constant to change). The server simulates the flight and
+decides hits; protocol v2 sends `throw` and `splat` events instead of laser tracers, and the stock in snapshots.
+
+**Alternatives.** Keep the laser; a cap on the stock (5 or 10 were discussed); ammo reset on respawn.
+
+**Reason.** The instant laser made hits too easy. A visible, slow, arcing projectile is harder to land, readable
+from the opponent's view (the dashed arc shows where it will land), and suits the second-person idea. The flight is
+deterministic, so it costs two small events per throw instead of a position per tick. Uncapped stock may reward
+hiding; the owner tests it before changing the constant.

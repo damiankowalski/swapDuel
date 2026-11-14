@@ -33,7 +33,8 @@ main question is not "can someone break the game" but "can a flaw in the game be
 - **Limits:** `maxPayload` 1 KB; per-socket rate limit (token bucket: input messages burst 10 then 40/s, other
   messages burst 5 then 5/s); 5 wrong room codes close the socket; connection caps per client IP (4) and in total
   (16); a cap on pending handshakes (8) with a 5 s timeout; heartbeat ping/pong every 5 s (dead sockets gone within
-  about 10 s); `permessage-deflate` off; input sequence numbers must grow and at most 4 inputs are queued.
+  about 10 s); `permessage-deflate` off; input sequence numbers must grow and at most 4 inputs are queued; a throw
+needs ammo, a new key press and 0.3 s since the last one, and at most 64 snowballs fly at once.
 - **Origin:** the upgrade is accepted only when `Origin` exactly equals one of the configured origins
   (`ALLOWED_ORIGINS`; the server refuses to start on a non-loopback address without it). Missing or other origins get
   HTTP 403.
