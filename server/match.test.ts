@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isValidPosition } from '../shared/arena.ts';
-import { MOVE_SPEED } from '../shared/constants.ts';
+import { MOVE_SPEED, START_AMMO, THROW_COOLDOWN } from '../shared/constants.ts';
 import { KEY_FIRE, KEY_FORWARD, TICK_DT } from '../shared/protocol.ts';
 import { seededRng } from '../shared/rng.ts';
 import { Match, MAX_QUEUED_INPUTS } from './match.ts';
@@ -41,52 +41,90 @@ test('at most MAX_QUEUED_INPUTS are kept; a backlog drains two per tick', () => 
   assert.equal(m.players[0].ack, 7);
 });
 
-test('a shot straight at the opponent scores, respawns the victim and reports events to both', () => {
-  const m = facingDuel();
-  m.pushInput(0, 0, KEY_FIRE);
+function throwOnce(m: Match, seat: 0 | 1, seq: number): number {
+  m.pushInput(seat, seq, KEY_FIRE);
   m.step();
+  m.pushInput(seat, seq + 1, 0);
+  m.step();
+  return seq + 2;
+}
+
+function flyFor(m: Match, seconds: number): void {
+  for (let i = 0; i < Math.round(seconds / TICK_DT); i++) m.step();
+}
+
+test('a snowball thrown straight at the opponent scores, respawns the victim and tells both players', () => {
+  const m = facingDuel();
+  throwOnce(m, 0, 0);
+  const hostThrow = m.snapshot(0).ev.find((e) => e.k === 'throw');
+  assert.equal(hostThrow?.k === 'throw' && hostThrow.by, 'you');
+  assert.equal(m.players[0].thrower.ammo, START_AMMO - 1);
+  flyFor(m, 1.5);
   assert.deepEqual(m.score, [1, 0]);
   assert.ok(isValidPosition(m.players[1].state.pos));
   const host = m.snapshot(0);
   const guest = m.snapshot(1);
   assert.deepEqual(host.score, [1, 0]);
   assert.deepEqual(guest.score, [0, 1]);
-  assert.deepEqual(host.ev.map((e) => e.k), ['shot', 'hit', 'spawn']);
+  assert.deepEqual(host.ev.map((e) => e.k), ['splat', 'hit', 'spawn']);
   assert.deepEqual(guest.ev.find((e) => e.k === 'hit'), { k: 'hit', by: 'opp' });
-  assert.deepEqual(guest.ev.find((e) => e.k === 'spawn')?.k === 'spawn' && guest.ev.find((e) => e.k === 'spawn'), {
+  assert.deepEqual(guest.ev.find((e) => e.k === 'spawn'), {
     k: 'spawn', who: 'you', x: m.players[1].state.pos.x, z: m.players[1].state.pos.z,
   });
-  assert.equal(m.snapshot(0).ev.length, 0, 'events are sent once');
+  assert.equal(m.snowballs.length, 0);
 });
 
-test('the crate blocks shots', () => {
-  const m = new Match(seededRng(1)); // spawns face each other across the crate
+test('the snowball needs time to fly: no hit on the first tick', () => {
+  const m = facingDuel();
   m.pushInput(0, 0, KEY_FIRE);
   m.step();
   assert.deepEqual(m.score, [0, 0]);
+  assert.equal(m.snowballs.length, 1);
 });
 
-test('holding fire shoots every 4 ticks (0.12 s rounded up to ticks)', () => {
+test('a target that steps aside is missed', () => {
+  const m = facingDuel();
+  throwOnce(m, 0, 0);
+  m.players[1].state.pos = { x: 7, z: -6 };
+  flyFor(m, 2);
+  assert.deepEqual(m.score, [0, 0]);
+  assert.equal(m.snowballs.length, 0, 'it splatted somewhere');
+});
+
+test('the crate stops snowballs', () => {
+  const m = new Match(seededRng(1)); // spawns face each other across the crate
+  throwOnce(m, 0, 0);
+  flyFor(m, 2);
+  assert.deepEqual(m.score, [0, 0]);
+});
+
+test('holding fire throws once; each press costs a snowball; an empty stock throws nothing', () => {
   const m = new Match(seededRng(1));
-  let shots = 0;
   for (let s = 0; s < 30; s++) {
     m.pushInput(0, s, KEY_FIRE);
     m.step();
-    shots += m.snapshot(0).ev.filter((e) => e.k === 'shot').length;
   }
-  assert.equal(shots, 8);
+  assert.equal(m.players[0].thrower.ammo, START_AMMO - 1);
+  let seq = 30;
+  for (let i = 0; i < 10; i++) {
+    seq = throwOnce(m, 0, seq);
+    flyFor(m, THROW_COOLDOWN);
+  }
+  assert.equal(m.players[0].thrower.ammo, 0);
+  const throwsBefore = m.snowballs.length;
+  throwOnce(m, 0, seq);
+  assert.equal(m.snowballs.length, throwsBefore);
 });
 
-test('after a hit the same shooter cannot score again for 0.6 s', () => {
-  const m = facingDuel();
-  let s = 0;
-  for (let i = 0; i < 12; i++) {
-    m.players[1].state.pos = { x: 5, z: -6 }; // keep the target in the line of fire
-    m.pushInput(0, s++, KEY_FIRE);
-    m.step();
-  }
-  // Shots at ticks 1, 5, 9: only the first scores (0.6 s = 18 ticks).
-  assert.deepEqual(m.score, [1, 0]);
+test('a new snowball arrives every 10 s and the snapshot says so', () => {
+  const m = new Match(seededRng(1));
+  flyFor(m, 9.9);
+  assert.equal(m.snapshot(0).ammo, START_AMMO);
+  assert.ok(Math.abs(m.snapshot(0).next - 0.1) < 0.05);
+  flyFor(m, 0.2);
+  const snap = m.snapshot(0);
+  assert.equal(snap.ammo, START_AMMO + 1);
+  assert.ok(Math.abs(snap.next - 9.9) < 0.05, `next ${snap.next}`);
 });
 
 test('idle time counts ticks since the last pressed key', () => {
