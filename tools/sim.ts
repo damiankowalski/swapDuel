@@ -39,9 +39,9 @@ if (values.net) {
 } else {
   const r = runMatch({ seconds, seed });
   console.log(`Simulated ${r.seconds} s (${r.steps} steps, seed ${seed})`);
-  console.log(`Bot A: ${r.hits[0]} hits / ${r.shots[0]} shots`);
-  console.log(`Bot B: ${r.hits[1]} hits / ${r.shots[1]} shots`);
-  console.log(`Invalid positions: ${r.invalidPositions}`);
-  if (r.invalidPositions > 0) process.exitCode = 1;
+  console.log(`Bot A: ${r.hits[0]} hits / ${r.throws[0]} snowballs`);
+  console.log(`Bot B: ${r.hits[1]} hits / ${r.throws[1]} snowballs`);
+  console.log(`Invalid states: ${r.invalid}, snowballs still flying: ${r.inFlight}`);
+  if (r.invalid > 0) process.exitCode = 1;
 }
 console.log(`(${(performance.now() - started).toFixed(0)} ms)`);
