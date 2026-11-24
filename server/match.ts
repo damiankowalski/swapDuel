@@ -1,6 +1,6 @@
 // Authoritative simulation of one duel (docs/NETWORKING.md §5-6). No I/O: the room feeds inputs and sends snapshots.
 import { randomSpawnPoint } from '../shared/arena.ts';
-import { SPAWN_GUEST, SPAWN_HOST } from '../shared/constants.ts';
+import { COUNTDOWN, SPAWN_GUEST, SPAWN_HOST, SPAWN_PROTECTION, WIN_SCORE } from '../shared/constants.ts';
 import { applyInput } from '../shared/netsim.ts';
 import type { PlayerState } from '../shared/player.ts';
 import { KEY_FIRE, TICK_DT, type GameEvent, type Pose, type ServerMessage, type Who } from '../shared/protocol.ts';
@@ -33,6 +33,8 @@ interface MatchPlayer {
   events: GameEvent[];
   /** Tick of the last processed input with any key pressed. */
   lastActiveTick: number;
+  /** Snowballs fly through this player until this tick (after a respawn). */
+  protectedUntil: number;
 }
 
 function newPlayer(spawn: Pose): MatchPlayer {
@@ -44,6 +46,7 @@ function newPlayer(spawn: Pose): MatchPlayer {
     thrower: createThrower(),
     events: [],
     lastActiveTick: 0,
+    protectedUntil: 0,
   };
 }
 
@@ -58,9 +61,15 @@ export class Match {
   readonly snowballs: Snowball[] = [];
   private nextBallId = 1;
   private readonly rng: Rng;
+  /** First tick at which inputs count; before it the countdown runs. */
+  readonly goTick: number;
+  /** The seat that reached WIN_SCORE, once someone has. The match does not step after that. */
+  winner: Seat | null = null;
 
-  constructor(rng: Rng) {
+  /** `countdown` in seconds; tests pass 0 to start at once. */
+  constructor(rng: Rng, countdown = COUNTDOWN) {
     this.rng = rng;
+    this.goTick = Math.round(countdown / TICK_DT);
     this.players = [newPlayer(SPAWN_HOST), newPlayer(SPAWN_GUEST)];
   }
 
@@ -76,11 +85,13 @@ export class Match {
 
   /** One server tick: refills, up to one input per player (two with a backlog), then the snowballs fly. */
   step(): void {
+    if (this.winner !== null) return;
     this.tick++;
+    const playing = this.tick >= this.goTick;
     const order: Seat[] = this.tick % 2 === 0 ? [0, 1] : [1, 0];
     for (const seat of order) {
       const p = this.players[seat];
-      tickThrower(p.thrower, TICK_DT);
+      if (playing) tickThrower(p.thrower, TICK_DT);
       const budget = p.queue.length > 2 ? 2 : 1;
       for (let i = 0; i < budget && p.queue.length > 0; i++) this.apply(seat, p.queue.shift()!);
     }
@@ -89,10 +100,12 @@ export class Match {
 
   private apply(seat: Seat, input: { s: number; k: number }): void {
     const p = this.players[seat];
-    applyInput(p.state, input.k);
+    // During the countdown inputs are acknowledged but do nothing.
+    const keys = this.tick >= this.goTick ? input.k : 0;
+    applyInput(p.state, keys);
     p.ack = input.s;
     if (input.k !== 0) p.lastActiveTick = this.tick;
-    if (!pressFire(p.thrower, (input.k & KEY_FIRE) !== 0)) return;
+    if (!pressFire(p.thrower, (keys & KEY_FIRE) !== 0)) return;
     if (this.snowballs.length >= MAX_SNOWBALLS) return;
 
     const start = launch(p.state.pos, p.state.yaw);
@@ -114,7 +127,9 @@ export class Match {
     for (let i = this.snowballs.length - 1; i >= 0; i--) {
       const ball = this.snowballs[i]!;
       const victimSeat = other(ball.owner);
-      const impact = stepSnowball(ball, TICK_DT, [{ seat: victimSeat, pos: this.players[victimSeat].state.pos }]);
+      const shielded = this.tick < this.players[victimSeat].protectedUntil || this.winner !== null;
+      const targets = shielded ? [] : [{ seat: victimSeat, pos: this.players[victimSeat].state.pos }];
+      const impact = stepSnowball(ball, TICK_DT, targets);
       if (!impact) continue;
       this.snowballs.splice(i, 1);
       const at: [number, number, number] = [r3(impact.point.x), r3(impact.point.y), r3(impact.point.z)];
@@ -122,8 +137,10 @@ export class Match {
       if (impact.kind !== 'target') continue;
 
       this.score[ball.owner]++;
+      if (this.score[ball.owner] >= WIN_SCORE) this.winner = ball.owner;
       const victim = this.players[victimSeat];
       victim.state.pos = randomSpawnPoint(this.rng);
+      victim.protectedUntil = this.tick + Math.round(SPAWN_PROTECTION / TICK_DT);
       for (const s of [0, 1] as const) {
         this.emit(s, { k: 'hit', by: rel(s, ball.owner) });
         this.emit(s, { k: 'spawn', who: rel(s, victimSeat), x: victim.state.pos.x, z: victim.state.pos.z });

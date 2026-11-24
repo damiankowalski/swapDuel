@@ -99,7 +99,7 @@ export function runNetplay(options: NetplayOptions): NetplayResult {
   const fps = options.fps ?? 60;
   const frameDt = 1 / fps;
   const rng = seededRng(options.seed);
-  const match = new Match(rng);
+  const match = new Match(rng, 0);
   const lag = new LagSimulator(options.lag, seededRng(options.seed + 1));
 
   const interp = new SnapshotInterpolator();

@@ -20,6 +20,7 @@ async function start(overrides: Partial<Config> = {}): Promise<{ game: GameServe
     distDir,
     log: false,
     handshakeTimeoutMs: 300,
+    countdownSeconds: 0,
     ...overrides,
   };
   const game = createGameServer(config);

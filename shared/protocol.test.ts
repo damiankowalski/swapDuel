@@ -56,3 +56,14 @@ test('status responses are validated', () => {
   assert.deepEqual(parseStatus({ state: 'busy', protocol: 1 }), { state: 'busy', protocol: 1 });
   assert.equal(parseStatus({ state: 'maybe', protocol: 1 }), null);
 });
+
+test('protocol v3: rematch, start with countdown, over', () => {
+  assert.deepEqual(parseClientMessage('{"t":"rematch"}'), { t: 'rematch' });
+  assert.equal(parseClientMessage('{"t":"rematch","x":1}'), null);
+  const start = { t: 'start', tick: 0, you: { x: 0, z: 6, yaw: 0 }, opp: { x: 0, z: -6, yaw: 3 }, go: 3 };
+  assert.deepEqual(parseServerMessage(JSON.stringify(start)), start);
+  assert.equal(parseServerMessage(JSON.stringify({ ...start, go: -1 })), null);
+  assert.deepEqual(parseServerMessage('{"t":"over","score":[10,7],"winner":"you"}'), { t: 'over', score: [10, 7], winner: 'you' });
+  assert.equal(parseServerMessage('{"t":"over","score":[10],"winner":"you"}'), null);
+  assert.deepEqual(parseServerMessage('{"t":"rematch"}'), { t: 'rematch' });
+});

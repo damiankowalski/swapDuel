@@ -18,7 +18,7 @@ class FakePlayer implements Player {
   }
 }
 
-const timeouts = { waitingRoomTimeoutMs: 1000, idleTimeoutMs: 2000, matchMaxMs: 10_000 };
+const timeouts = { waitingRoomTimeoutMs: 1000, idleTimeoutMs: 2000, matchMaxMs: 10_000, rematchTimeoutMs: 5000, countdownSeconds: 0 };
 const manager = (max = 1) => {
   const rng = seededRng(1);
   return new RoomManager(max, timeouts, rng, (n) => Math.floor(rng() * n));
@@ -118,4 +118,63 @@ test('a match ends at the time limit', () => {
   rooms.tick(10_000);
   assert.deepEqual(a.last('end'), { t: 'end', reason: 'time_limit' });
   assert.deepEqual(b.last('end'), { t: 'end', reason: 'time_limit' });
+});
+
+function finishedRoom(): { rooms: RoomManager; a: FakePlayer; b: FakePlayer } {
+  const rooms = manager();
+  const a = new FakePlayer();
+  const b = new FakePlayer();
+  const r = rooms.create(a, 0);
+  assert.ok(r.ok);
+  rooms.join(b, r.code, 0);
+  // Let seat 0 win: put the score one short and land a snowball.
+  const found = rooms.roomOf(a)!;
+  const match = found.room.match!;
+  match.score[0] = 9;
+  match.players[0].state.pos = { x: 5, z: 6 };
+  match.players[0].state.yaw = 0;
+  match.players[1].state.pos = { x: 5, z: -2 };
+  rooms.input(a, 0, 64);
+  for (let t = 0; t < 60 && found.room.overAt === null; t++) rooms.tick(100 + t);
+  return { rooms, a, b };
+}
+
+test('reaching WIN_SCORE ends the match for both, with the score and the winner, and keeps the room', () => {
+  const { rooms, a, b } = finishedRoom();
+  assert.deepEqual(a.last('over'), { t: 'over', score: [10, 0], winner: 'you' });
+  assert.deepEqual(b.last('over'), { t: 'over', score: [0, 10], winner: 'opp' });
+  assert.equal(a.ended, false);
+  assert.equal(rooms.busy, true);
+  const snaps = a.inbox.filter((m) => m.t === 'snap').length;
+  rooms.tick(1000);
+  assert.equal(a.inbox.filter((m) => m.t === 'snap').length, snaps, 'no more snapshots after the end');
+});
+
+test('a rematch starts when both ask; the first request is shown to the opponent', () => {
+  const { rooms, a, b } = finishedRoom();
+  const starts = a.inbox.filter((m) => m.t === 'start').length;
+  assert.equal(rooms.requestRematch(a, 2000), true);
+  assert.deepEqual(b.last('rematch'), { t: 'rematch' });
+  assert.equal(rooms.requestRematch(a, 2001), false, 'asking twice changes nothing');
+  assert.equal(rooms.requestRematch(b, 2002), true);
+  assert.equal(a.inbox.filter((m) => m.t === 'start').length, starts + 1);
+  assert.deepEqual(rooms.roomOf(a)!.room.match!.score, [0, 0]);
+});
+
+test('without a rematch the finished room closes after the timeout', () => {
+  const { rooms, a, b } = finishedRoom();
+  rooms.requestRematch(a, 2000);
+  rooms.tick(100_000);
+  assert.deepEqual(a.last('end'), { t: 'end', reason: 'room_expired' });
+  assert.deepEqual(b.last('end'), { t: 'end', reason: 'room_expired' });
+  assert.equal(rooms.busy, false);
+});
+
+test('a rematch request during a running match is ignored', () => {
+  const rooms = manager();
+  const a = new FakePlayer();
+  const r = rooms.create(a, 0);
+  assert.ok(r.ok);
+  rooms.join(new FakePlayer(), r.code, 0);
+  assert.equal(rooms.requestRematch(a, 1), false);
 });

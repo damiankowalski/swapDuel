@@ -17,6 +17,9 @@ export interface Config {
   idleTimeoutMs: number;
   heartbeatIntervalMs: number;
   matchMaxMs: number;
+  rematchTimeoutMs: number;
+  /** Countdown before a match (s); unset = the game's COUNTDOWN. Tests set 0. */
+  countdownSeconds?: number;
   /** Folder with the built client (index.html). */
   distDir: string;
   /** Write log lines to stdout. */
@@ -37,6 +40,7 @@ export const DEFAULTS: Omit<Config, 'allowedOrigins' | 'distDir'> = {
   idleTimeoutMs: 60_000,
   heartbeatIntervalMs: 5_000,
   matchMaxMs: 20 * 60_000,
+  rematchTimeoutMs: 60_000,
   log: true,
 };
 
@@ -90,6 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv, distDir: string): Config {
     idleTimeoutMs: seconds(env, 'IDLE_TIMEOUT_S', DEFAULTS.idleTimeoutMs, 10, 3600),
     heartbeatIntervalMs: seconds(env, 'HEARTBEAT_INTERVAL_S', DEFAULTS.heartbeatIntervalMs, 1, 60),
     matchMaxMs: seconds(env, 'MATCH_MAX_S', DEFAULTS.matchMaxMs, 60, 24 * 3600),
+    rematchTimeoutMs: seconds(env, 'REMATCH_TIMEOUT_S', DEFAULTS.rematchTimeoutMs, 10, 3600),
     distDir,
     log: true,
   };

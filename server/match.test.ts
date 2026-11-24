@@ -9,7 +9,7 @@ import { Match, MAX_QUEUED_INPUTS } from './match.ts';
 const near = (a: number, b: number, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
 function facingDuel(): Match {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   m.players[0].state.pos = { x: 5, z: 6 };
   m.players[0].state.yaw = 0; // faces -z, towards the guest
   m.players[1].state.pos = { x: 5, z: -6 };
@@ -17,7 +17,7 @@ function facingDuel(): Match {
 }
 
 test('the server moves a player only by its inputs, at MOVE_SPEED', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   for (let s = 0; s < 3; s++) m.pushInput(0, s, KEY_FORWARD);
   for (let i = 0; i < 3; i++) m.step();
   near(m.players[0].state.pos.z, 6 - 3 * MOVE_SPEED * TICK_DT);
@@ -26,14 +26,14 @@ test('the server moves a player only by its inputs, at MOVE_SPEED', () => {
 });
 
 test('input sequence numbers must grow', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   assert.equal(m.pushInput(0, 5, 0), true);
   assert.equal(m.pushInput(0, 5, 0), false);
   assert.equal(m.pushInput(0, 4, 0), false);
 });
 
 test('at most MAX_QUEUED_INPUTS are kept; a backlog drains two per tick', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   for (let s = 0; s < 10; s++) m.pushInput(0, s, KEY_FORWARD);
   assert.equal(m.players[0].queue.length, MAX_QUEUED_INPUTS);
   m.step();
@@ -92,14 +92,14 @@ test('a target that steps aside is missed', () => {
 });
 
 test('the crate stops snowballs', () => {
-  const m = new Match(seededRng(1)); // spawns face each other across the crate
+  const m = new Match(seededRng(1), 0); // spawns face each other across the crate
   throwOnce(m, 0, 0);
   flyFor(m, 2);
   assert.deepEqual(m.score, [0, 0]);
 });
 
 test('holding fire throws once; each press costs a snowball; an empty stock throws nothing', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   for (let s = 0; s < 30; s++) {
     m.pushInput(0, s, KEY_FIRE);
     m.step();
@@ -117,7 +117,7 @@ test('holding fire throws once; each press costs a snowball; an empty stock thro
 });
 
 test('a new snowball arrives every 10 s and the snapshot says so', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   flyFor(m, 9.9);
   assert.equal(m.snapshot(0).ammo, START_AMMO);
   assert.ok(Math.abs(m.snapshot(0).next - 0.1) < 0.05);
@@ -128,10 +128,46 @@ test('a new snowball arrives every 10 s and the snapshot says so', () => {
 });
 
 test('idle time counts ticks since the last pressed key', () => {
-  const m = new Match(seededRng(1));
+  const m = new Match(seededRng(1), 0);
   for (let i = 0; i < 30; i++) m.step();
   near(m.idleSeconds(0), 1);
   m.pushInput(0, 0, KEY_FORWARD);
   m.step();
   near(m.idleSeconds(0), 0);
+});
+
+test('during the countdown inputs are acknowledged but nobody moves or throws', () => {
+  const m = new Match(seededRng(1), 1); // 1 s = 30 ticks
+  for (let s = 0; s < 10; s++) {
+    m.pushInput(0, s, KEY_FORWARD | (s === 0 ? KEY_FIRE : 0));
+    m.step();
+  }
+  near(m.players[0].state.pos.z, 6);
+  assert.equal(m.players[0].ack, 9);
+  assert.equal(m.snowballs.length, 0);
+  assert.equal(m.players[0].thrower.ammo, START_AMMO);
+});
+
+test('a respawned player is protected: snowballs fly through for 1.5 s', () => {
+  const m = facingDuel();
+  m.players[1].protectedUntil = m.tick + 45;
+  throwOnce(m, 0, 0);
+  for (let i = 0; i < 20; i++) {
+    m.players[1].state.pos = { x: 5, z: -6 };
+    m.step();
+  }
+  assert.deepEqual(m.score, [0, 0]);
+});
+
+test('a hit sets the victim\'s protection and the tenth point decides the match', () => {
+  const m = facingDuel();
+  m.score[0] = 9;
+  throwOnce(m, 0, 0);
+  flyFor(m, 1.5);
+  assert.deepEqual(m.score, [10, 0]);
+  assert.equal(m.winner, 0);
+  assert.ok(m.players[1].protectedUntil > m.tick - 45);
+  const tick = m.tick;
+  m.step();
+  assert.equal(m.tick, tick, 'a finished match does not step');
 });
