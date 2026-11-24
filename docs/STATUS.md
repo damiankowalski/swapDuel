@@ -22,7 +22,6 @@
 - **Own snowball vs server:** our own throw is predicted; near misses can look like hits until the server decides.
 - **Uncapped stock** may reward hiding (`MAX_AMMO`); first-to-10 should limit it, to be judged in play.
 - **No room-creation cool-down per IP:** fine behind the access gate, needed before going public.
-- **GitHub Pages** still publishes an old static copy until the owner switches it off.
 - **Not verified by eye:** the online end screen and rematch between two people (covered by server tests).
 
 ## Next step

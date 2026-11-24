@@ -38,7 +38,7 @@ swapduel/
 │                         protocol, and the netcode (netsim, prediction, interpolation, One Euro filter, lag)
 ├─ tools/                 sim.ts (CLI), netplay.ts (headless network match for the camera metrics)
 ├─ docs/                  STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT
-├─ .github/               CI (typecheck, tests, sim, build, audit), Pages deployment, Dependabot
+├─ .github/               CI (typecheck, tests, sim, build, audit, image), release image, Dependabot
 ├─ vite.config.ts         builds client/ to dist/index.html (one self-contained file)
 ├─ tsconfig*.json         base options; shared guard (no DOM, no Node); client (DOM); Node side (tests, tools)
 └─ AGENTS.md, CLAUDE.md, README.md, LICENSE

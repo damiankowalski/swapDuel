@@ -33,7 +33,7 @@ rematch. After being hit you respawn and blink for 1.5 s: snowballs fly through 
 ground marks your own fighter.
 
 The server runs one match at a time; while one is running, others see "A match is in progress". Online play needs
-the game server: opened from a downloaded file or from GitHub Pages, only training is available.
+the game server: opened from a downloaded file, only training is available.
 
 ## Playing without installing anything
 
