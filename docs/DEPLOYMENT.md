@@ -49,7 +49,8 @@ private infrastructure repository. In outline:
    Wi-Fi and mobile data).
 4. **Rollback:** set `SWAPDUEL_VERSION` back to the previous version and `docker compose up -d`. No data to migrate:
    the game keeps nothing.
-5. **After the first deployment:** GitHub Pages is switched off (or replaced by a redirect page).
+5. **After the first deployment:** GitHub Pages is switched off: the Pages workflow is removed from the repository
+   and the owner deletes the Pages site (`gh api -X DELETE repos/damiankowalski/swapDuel/pages`).
 
 ## 5. Local equivalent
 

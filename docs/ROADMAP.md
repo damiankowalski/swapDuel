@@ -13,7 +13,8 @@ Merge and release only after the owner approves. Versions are tagged at the end 
 - **P2.5 · v0.4.0**: snowballs instead of the laser (ADR-013), protocol v2.
 - **P3 · v0.5.0** (deployed Nov 2026): hardened container image, compose file with an internal network and the tunnel
   connector, release workflow to GHCR, runbook in the infrastructure repository; deployed behind an invite-only
-  access gate; a match home Wi-Fi <-> mobile data worked (owner, 24 Nov 2026). GitHub Pages to be switched off.
+  access gate; a match home Wi-Fi <-> mobile data worked (owner, 24 Nov 2026). GitHub Pages switched off afterwards (its
+  workflow removed).
 
 ## Next
 

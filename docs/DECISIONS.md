@@ -61,7 +61,7 @@ enforced with `erasableSyntaxOnly`; relative imports name the `.ts` extension.
 
 **Decision.** One Node process serves the built client, the WebSocket `/ws` and `GET /status` under one HTTPS origin
 (`https://swapduel.damiankowalski.pl`). GitHub Pages is switched off (or turned into a redirect) after the deployment
-in P3. The `index.html` attached to GitHub releases is an archive copy: downloaded, it runs only the bot mode.
+in P3 (done on 24 Nov 2026: the Pages workflow was removed and the site deleted). The `index.html` attached to GitHub releases is an archive copy: downloaded, it runs only the bot mode.
 
 **Alternatives.** Client on GitHub Pages, only the WebSocket on the server.
 
