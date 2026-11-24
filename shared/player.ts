@@ -1,5 +1,6 @@
 // Movement of a human-controlled fighter.
 import { resolveCollisions } from './arena.ts';
+import { DEFAULT_MAP, type ArenaMap } from './maps.ts';
 import { EYE_HEIGHT, MOVE_SPEED, TURN_SPEED } from './constants.ts';
 import { forwardOf, rightOf, type Vec2, type Vec3 } from './math.ts';
 
@@ -34,7 +35,7 @@ export const NO_INPUT: Readonly<MoveInput> = {
 };
 
 /** Advances a fighter by `dt` seconds: turn first, then move along the new heading, then collide. */
-export function stepPlayer(player: PlayerState, input: MoveInput, dt: number): void {
+export function stepPlayer(player: PlayerState, input: MoveInput, dt: number, map: ArenaMap = DEFAULT_MAP): void {
   if (input.turnLeft) player.yaw += TURN_SPEED * dt;
   if (input.turnRight) player.yaw -= TURN_SPEED * dt;
 
@@ -52,6 +53,6 @@ export function stepPlayer(player: PlayerState, input: MoveInput, dt: number): v
     const step = (MOVE_SPEED * dt) / len;
     player.pos.x += mx * step;
     player.pos.z += mz * step;
-    resolveCollisions(player.pos);
+    resolveCollisions(player.pos, map);
   }
 }

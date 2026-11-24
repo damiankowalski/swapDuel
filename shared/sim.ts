@@ -1,5 +1,6 @@
 // Headless bot-vs-bot match on the shared simulation: no rendering, no network, deterministic for a seed.
 import { isValidPosition } from './arena.ts';
+import { DEFAULT_MAP, type ArenaMap } from './maps.ts';
 import { createBot, respawnBot, stepBot, type BotState } from './bot.ts';
 import { SPAWN_GUEST, SPAWN_HOST } from './constants.ts';
 import { seededRng } from './rng.ts';
@@ -10,6 +11,7 @@ export interface SimOptions {
   seed: number;
   /** Fixed step (s); default 1/60. */
   dt?: number;
+  map?: ArenaMap;
 }
 
 export interface SimResult {
@@ -26,6 +28,7 @@ export interface SimResult {
 /** Both bots wander as in training mode and press fire once a second, throwing along their view. */
 export function runMatch(options: SimOptions): SimResult {
   const dt = options.dt ?? 1 / 60;
+  const map = options.map ?? DEFAULT_MAP;
   const rng = seededRng(options.seed);
   const bots: [BotState, BotState] = [
     createBot({ x: SPAWN_HOST.x, z: SPAWN_HOST.z }, SPAWN_HOST.yaw),
@@ -39,7 +42,7 @@ export function runMatch(options: SimOptions): SimResult {
   const steps = Math.round(options.seconds / dt);
   for (let step = 0; step < steps; step++) {
     const time = step * dt;
-    for (const bot of bots) stepBot(bot, dt, rng);
+    for (const bot of bots) stepBot(bot, dt, rng, undefined, map);
     for (const i of [0, 1] as const) {
       const t = throwers[i];
       tickThrower(t, dt);
@@ -53,15 +56,15 @@ export function runMatch(options: SimOptions): SimResult {
     for (let j = balls.length - 1; j >= 0; j--) {
       const ball = balls[j]!;
       const victim = ball.owner === 0 ? 1 : 0;
-      const impact = stepSnowball(ball, dt, [{ seat: victim, pos: bots[victim].pos }]);
+      const impact = stepSnowball(ball, dt, [{ seat: victim, pos: bots[victim].pos }], map);
       if (!impact) continue;
       balls.splice(j, 1);
       if (impact.kind === 'target') {
         result.hits[ball.owner]++;
-        respawnBot(bots[victim], rng);
+        respawnBot(bots[victim], rng, map);
       }
     }
-    const ok = bots.every((b) => isValidPosition(b.pos)) && throwers.every((t) => t.ammo >= 0);
+    const ok = bots.every((b) => isValidPosition(b.pos, map)) && throwers.every((t) => t.ammo >= 0);
     if (!ok) result.invalid++;
     result.steps++;
   }
