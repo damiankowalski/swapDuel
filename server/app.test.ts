@@ -240,7 +240,9 @@ describe('rooms and a match over sockets', () => {
       assert.equal(snap.ack, 8);
       // Nine inputs sent at once: only the newest four are kept (no banking of moves), 4 x 0.2 m.
       assert.ok(Math.abs(Math.abs(snap.you.z - start0.you.z) - 0.8) < 1e-6, `guest moved to ${snap.you.z}`);
-      const hostView = await host.next('snap');
+      // The host's snapshots queued before the guest's inputs were applied still show the start; wait for the move.
+      let hostView = await host.next('snap');
+      for (let i = 0; i < 30 && Math.abs(hostView.opp.z - start0.you.z) < 0.1; i++) hostView = await host.next('snap');
       assert.ok(Math.abs(hostView.opp.z - start0.you.z) > 0.1, 'host sees the guest move');
 
       // Repeating a sequence number is a protocol violation.
