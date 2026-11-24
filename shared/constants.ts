@@ -49,6 +49,17 @@ export const SNOWBALL_LIFETIME = 4;
 /** Physics step for flying snowballs (s): 8 cm per step at full speed, less than the ball's radius. */
 export const SNOWBALL_STEP = 1 / 240;
 
+// ---------- Match rules (ADR-014) ----------
+
+/** The first player to this many points wins the match. */
+export const WIN_SCORE = 10;
+/** After a respawn, snowballs fly through the fighter for this long (s). */
+export const SPAWN_PROTECTION = 1.5;
+/** "3-2-1" before a match (and a rematch) starts: nobody moves or throws (s). */
+export const COUNTDOWN = 3;
+/** A bot throws only at targets closer than this (m), a little under the snowball's range. */
+export const BOT_THROW_RANGE = 16;
+
 /** Longest frame step the simulation accepts (s); longer frames are clamped. */
 export const MAX_FRAME_DT = 0.05;
 /** Interval of P2P state messages (s), about 30 per second. */
