@@ -178,3 +178,15 @@ test('a rematch request during a running match is ignored', () => {
   rooms.join(new FakePlayer(), r.code, 0);
   assert.equal(rooms.requestRematch(a, 1), false);
 });
+
+test('the host picks the arena; both players learn it from start', () => {
+  const rooms = manager();
+  const a = new FakePlayer();
+  const b = new FakePlayer();
+  const r = rooms.create(a, 0, 'moat');
+  assert.ok(r.ok);
+  rooms.join(b, r.code, 0);
+  assert.equal(a.last('start')?.map, 'moat');
+  assert.equal(b.last('start')?.map, 'moat');
+  assert.equal(rooms.roomOf(a)!.room.match!.map.id, 'moat');
+});

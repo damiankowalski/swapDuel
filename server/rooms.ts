@@ -1,4 +1,5 @@
 // Rooms: codes, the room limit (MAX_ROOMS), timeouts and the 30 Hz tick of every match (docs/NETWORKING.md §4).
+import { MAPS, type MapId } from '../shared/maps.ts';
 import { createRoomCode, type RandomInt } from '../shared/room-code.ts';
 import { TICK_DT, type EndReason, type ServerMessage } from '../shared/protocol.ts';
 import type { Rng } from '../shared/rng.ts';
@@ -30,6 +31,8 @@ interface Room {
   /** Set when the match is over (someone reached WIN_SCORE); the room then waits for a rematch. */
   overAt: number | null;
   rematch: [boolean, boolean];
+  /** The arena the host chose. */
+  map: MapId;
 }
 
 export type CreateResult = { ok: true; code: string } | { ok: false; reason: 'busy' };
@@ -65,12 +68,12 @@ export class RoomManager {
     return { room, seat: room.seats[0] === player ? 0 : 1 };
   }
 
-  create(player: Player, now: number): CreateResult {
+  create(player: Player, now: number, map: MapId = 'classic'): CreateResult {
     if (this.busy) return { ok: false, reason: 'busy' };
     let code: string;
     do code = createRoomCode(this.randomInt);
     while (this.rooms.has(code));
-    const room: Room = { code, seats: [player, null], createdAt: now, match: null, startedAt: 0, overAt: null, rematch: [false, false] };
+    const room: Room = { code, seats: [player, null], createdAt: now, match: null, startedAt: 0, overAt: null, rematch: [false, false], map };
     this.rooms.set(code, room);
     this.byPlayer.set(player, room);
     player.send({ t: 'room', code, seat: 0 });
@@ -90,14 +93,14 @@ export class RoomManager {
   }
 
   private startMatch(room: Room, now: number): void {
-    const match = new Match(this.rng, this.timeouts.countdownSeconds);
+    const match = new Match(this.rng, this.timeouts.countdownSeconds, MAPS[room.map]);
     room.match = match;
     room.startedAt = now;
     room.overAt = null;
     room.rematch = [false, false];
     for (const seat of [0, 1] as const) {
       room.seats[seat]!.send({
-        t: 'start', tick: 0, you: match.pose(seat), opp: match.pose(seat === 0 ? 1 : 0), go: match.goTick * TICK_DT,
+        t: 'start', tick: 0, you: match.pose(seat), opp: match.pose(seat === 0 ? 1 : 0), go: match.goTick * TICK_DT, map: room.map,
       });
     }
     this.onEvent('match_started');

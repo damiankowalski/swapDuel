@@ -173,7 +173,7 @@ export function createGameServer(config: Config, now: () => number = Date.now): 
 
         case 'lobby':
           if (msg.t === 'create') {
-            const r = rooms.create(this, now());
+            const r = rooms.create(this, now(), msg.map);
             if (r.ok) this.state = 'room';
             else this.send({ t: 'reject', reason: r.reason });
             return;

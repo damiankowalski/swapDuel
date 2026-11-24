@@ -4,6 +4,7 @@ import { isValidPosition } from '../shared/arena.ts';
 import { MOVE_SPEED, START_AMMO, THROW_COOLDOWN } from '../shared/constants.ts';
 import { KEY_FIRE, KEY_FORWARD, TICK_DT } from '../shared/protocol.ts';
 import { seededRng } from '../shared/rng.ts';
+import { MAPS } from '../shared/maps.ts';
 import { Match, MAX_QUEUED_INPUTS } from './match.ts';
 
 const near = (a: number, b: number, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -170,4 +171,19 @@ test('a hit sets the victim\'s protection and the tenth point decides the match'
   const tick = m.tick;
   m.step();
   assert.equal(m.tick, tick, 'a finished match does not step');
+});
+
+test('walking into the moat\'s ditch gives the opponent a point and respawns the faller', () => {
+  const m = new Match(seededRng(1), 0, MAPS.moat);
+  m.players[1].state.pos = { x: 0, z: -12.3 }; // one step from the ditch, facing it (yaw PI faces +z: turn around)
+  m.players[1].state.yaw = 0; // faces -z, towards the ditch
+  for (let s = 0; s < 5; s++) {
+    m.pushInput(1, s, KEY_FORWARD);
+    m.step();
+  }
+  assert.deepEqual(m.score, [1, 0]);
+  assert.ok(isValidPosition(m.players[1].state.pos, MAPS.moat));
+  const ev = m.snapshot(1).ev.map((e) => e.k);
+  assert.deepEqual(ev.slice(0, 2), ['fall', 'spawn']);
+  assert.deepEqual(m.snapshot(0).ev.find((e) => e.k === 'fall'), { k: 'fall', who: 'opp' });
 });
