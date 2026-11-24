@@ -2,6 +2,7 @@
 // interpolation of the opponent (docs/NETWORKING.md). No rendering here.
 import { SnapshotInterpolator } from '../../shared/interpolation.ts';
 import { LagSimulator, type LagOptions } from '../../shared/lag.ts';
+import { MAPS, type MapId } from '../../shared/maps.ts';
 import { Predictor } from '../../shared/prediction.ts';
 import { createThrower, pressFire, tickThrower } from '../../shared/snowball.ts';
 import {
@@ -21,7 +22,7 @@ import {
 export interface SessionHandlers {
   onRoom(code: string, seat: 0 | 1): void;
   /** A match or a rematch starts after a countdown of `go` seconds. */
-  onStart(you: Pose, opp: Pose, go: number): void;
+  onStart(you: Pose, opp: Pose, go: number, map: MapId): void;
   onOver(score: [number, number], winner: 'you' | 'opp'): void;
   onRematchWanted(): void;
   onSnapshot(tick: number, score: [number, number], events: GameEvent[]): void;
@@ -141,8 +142,8 @@ export class OnlineSession {
     });
   }
 
-  create(): void {
-    this.send({ t: 'create' });
+  create(map: MapId): void {
+    this.send({ t: 'create', map });
   }
 
   join(code: string): void {
@@ -207,14 +208,14 @@ export class OnlineSession {
         return;
       case 'start':
         // A rematch starts from tick 0 again: everything per match is reset.
-        this.predictor = new Predictor(msg.you);
+        this.predictor = new Predictor(msg.you, MAPS[msg.map]);
         this.interp = new SnapshotInterpolator();
         this.thrower = createThrower();
         this.pendingThrows.clear();
         this.sentAt.clear();
         this.serverAmmo = this.thrower.ammo;
         this.interp.push(msg.tick, msg.opp, true, nowSec());
-        this.handlers.onStart(msg.you, msg.opp, msg.go);
+        this.handlers.onStart(msg.you, msg.opp, msg.go, msg.map);
         return;
       case 'over':
         this.handlers.onOver(msg.score, msg.winner);

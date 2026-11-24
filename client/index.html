@@ -96,6 +96,13 @@
   #countdown{ position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); pointer-events:none;
                font:800 96px var(--mono); color:var(--aim); text-shadow:0 2px 18px rgba(0,0,0,.6); }
   #over .score{ font-size:40px; font-weight:800; letter-spacing:.08em; }
+  .chips{ display:flex; gap:8px; pointer-events:auto; }
+  .chip{ cursor:pointer; font-family:var(--mono); font-size:13px; color:var(--ink); background:transparent;
+         border:1px solid var(--line); border-radius:999px; padding:7px 14px; }
+  .chip.on{ border-color:var(--aim); color:var(--aim); background:rgba(255,176,32,.08); }
+  #toast{ position:fixed; left:50%; top:24%; transform:translateX(-50%); pointer-events:none; z-index:4;
+          font:700 16px var(--mono); color:var(--ink); background:var(--panel); border:1px solid var(--line);
+          border-radius:8px; padding:8px 14px; }
   .hidden{ display:none !important; }
 </style>
 </head>
@@ -132,6 +139,7 @@
 <div id="flash"></div>
 <div class="panel bl hidden" id="netStats"></div>
 <div id="countdown" class="hidden"></div>
+<div id="toast" class="hidden"></div>
 
 <!-- MATCH OVER -->
 <div id="over" class="overlay hidden">
@@ -150,6 +158,11 @@
   <div class="sub">You see the world through your opponent's eyes, but you steer yourself. Play online with a friend or practise against a bot.</div>
 
   <div id="choice" class="col">
+    <div class="lbl">Arena</div>
+    <div class="chips" id="mapChoice">
+      <button class="chip on" data-map="classic">Classic</button>
+      <button class="chip" data-map="moat">Frozen moat</button>
+    </div>
     <button class="btn" id="btnHost">Create online game</button>
     <button class="btn" id="btnJoin">Join game</button>
     <button class="btn ghost" id="btnBot">Training (bot)</button>
