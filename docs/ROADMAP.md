@@ -18,7 +18,7 @@ Merge and release only after the owner approves. Versions are tagged at the end 
 
 ## Next
 
-### P4a - Match rules · M · v0.6.0 · *in review*
+### P4a - Match rules · M · v0.6.0 · *done, deployed 24 Nov 2026*
 
 First to 10 points wins; an end screen with **Rematch** (both players must ask; the room waits 60 s); a 3-2-1
 countdown before every match; 1.5 s of spawn protection (snowballs fly through, the fighter blinks); a ring on the
@@ -26,7 +26,7 @@ ground under your own fighter; a training bot that aims and throws. Protocol v3 
 
 **Done when:** both modes end at 10 with a winner and a rematch; the rules are server-side and tested.
 
-### P4b - Arena 2 with a ditch · M · v0.7.0
+### P4b - Arena 2 with a ditch · M · v0.7.0 · *in review*
 
 A bigger arena (about 28 x 28 m) with a ditch along the walls: falling in gives the opponent a point (like a hit) and
 respawns you; two or three smaller crates instead of one big one. The host picks the map when creating a game; the bot
@@ -34,6 +34,8 @@ avoids the ditch. Same match rules as P4a.
 
 **Done when:** both maps are playable online and in training; falling in scores for the opponent; tests cover the
 ditch, the map choice and the bot.
+
+Built as planned (ADR-015): arena "Frozen moat", 28 x 28 m, ditch 1.6 m wide and 1.2 m deep, three crates.
 
 ### P4c - Winter look and sound · M · v0.8.0
 

@@ -237,3 +237,21 @@ codes or the busy server limit getting in the way. The countdown and protection 
 the other is ready, being hit while finding yourself after a respawn), which matters more with the swapped camera.
 Protection needs no protocol field: the `spawn` event already tells clients when it starts.
 
+---
+
+## ADR-015 - Arenas, and a ditch that scores for the opponent
+
+**Date:** 2026-11-24 · **Status:** accepted (owner's idea, package P4b)
+
+**Decision.** Arenas are data (`shared/maps.ts`): size, crates, an optional ditch along the walls. Two arenas: the
+classic 20 x 20 m one with one crate, and "Frozen moat", 28 x 28 m with a 1.6 m wide ditch along the walls and three
+smaller crates. Falling into the ditch gives the opponent a point, exactly like being hit (respawn and protection
+included). The host picks the arena when creating a game (`create { map }`); `start` tells both players. Training uses
+the arena chosen in the menu; the bot only walks between safe points, so it never falls in. Protocol v4.
+
+**Alternatives.** A separate game mode; losing a point instead of giving one; a ditch the player can climb out of.
+
+**Reason.** The swapped camera makes it easy to back into danger without seeing it, so a ditch adds tension and
+tactics without any new control. Treating a fall as a point for the opponent reuses the scoring, respawn and
+protection rules, so the first-to-10 match stays the same. Default arguments keep the classic arena's behaviour
+unchanged everywhere.
