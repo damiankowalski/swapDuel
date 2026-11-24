@@ -13,7 +13,8 @@ of the screen (the point they look from), so you throw your snowball's arc towar
 - Controls: `W A S D` move, `<-` `->` turn, `Space` throw a snowball, `V` toggle view (opponent's eyes <-> own).
 - Snowballs fly in an arc (about 18 m); 5 at the start, one more every 10 s, no cap. A dashed arc and the reticle
   show where the next one lands.
-- Modes: **online** (two players, a room code) and **training** against a bot (offline).
+- A match is first to 10 points, after a 3-2-1 countdown; then a rematch. 1.5 s of spawn protection after a hit.
+- Modes: **online** (two players, a room code) and **training** against a bot that throws back (offline).
 - Current state, bugs and next step: [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Communication
@@ -24,7 +25,7 @@ of the screen (the point they look from), so you throw your snowball's arc towar
 
 ## Repository map
 
-Today (P2, v0.3.0):
+Today (P4a, v0.6.0):
 
 ```
 swapduel/

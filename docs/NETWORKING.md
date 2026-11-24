@@ -29,7 +29,7 @@ Browser B ──wss://host/ws──┘                       └── room stat
   `MAX_ROOMS` (default `1`), `ALLOWED_ORIGINS` (comma-separated exact origins; required when `HOST` is not loopback;
   the local default allows ports 8080 and 5173), `CLIENT_IP_HEADER` (unset = use the socket address),
   `MAX_CONNECTIONS` (16), `MAX_CONNECTIONS_PER_IP` (4), `MAX_PENDING_HANDSHAKES` (8), and the timeouts below in
-  seconds (`HANDSHAKE_TIMEOUT_S`, `WAITING_ROOM_TIMEOUT_S`, `IDLE_TIMEOUT_S`, `HEARTBEAT_INTERVAL_S`, `MATCH_MAX_S`).
+  seconds (`HANDSHAKE_TIMEOUT_S`, `WAITING_ROOM_TIMEOUT_S`, `IDLE_TIMEOUT_S`, `HEARTBEAT_INTERVAL_S`, `MATCH_MAX_S`, `REMATCH_TIMEOUT_S`).
 
 ## 3. Connection lifecycle and handshake
 
@@ -41,12 +41,17 @@ Browser B ──wss://host/ws──┘                       └── room stat
    `version` (client shows "A new version is available - reload the page"), `busy`, `full`, `bad_code`, `timeout`,
    `protocol`.
 4. Client sends `create {}` or `join { code }`; server answers `room { code, seat }` or `reject`.
-5. When the second player joins, the server starts the match at once: `start { tick, you, opp }` to both. (There is no
-   `ready` step: until a player clicks the start screen, the client sends empty inputs, and the idle timeout covers a
-   player who never starts.)
-6. During the match: client -> `in`, server -> `snap` (§6). `leave {}` or a closed socket ends the match for both;
-   the server sends `end { reason }` (`opponent_left`, `time_limit`, `idle`, `room_expired`, `server_shutdown`) and
-   closes the socket. A new game uses a new socket.
+5. When the second player joins, the server starts the match at once: `start { tick, you, opp, go }` to both, where
+   `go` is the countdown (3 s): until then inputs are acknowledged but nobody moves, throws or gets snowballs. (There
+   is no `ready` step: until a player clicks the start screen, the client sends empty inputs, and the idle timeout
+   covers a player who never starts.)
+6. During the match: client -> `in`, server -> `snap` (§6). When a player reaches 10 points (`WIN_SCORE`) the server
+   sends `over { score, winner }` and stops the match, but keeps the room: each player may send `rematch {}`; the
+   other one is told (`rematch {}`); when both asked, a new `start` follows (tick 0 again, countdown, fresh stock).
+   Without both requests within 60 s the room closes (`end { reason: "room_expired" }`).
+7. `leave {}` or a closed socket ends the match (or the waiting rematch) for both; the server sends
+   `end { reason }` (`opponent_left`, `time_limit`, `idle`, `room_expired`, `server_shutdown`) and closes the
+   socket. A new game uses a new socket.
 
 `PROTOCOL_VERSION` is an integer in `shared/protocol.ts`, bumped on every incompatible change. Client and server
 come from the same build (ADR-004), so a mismatch means a stale tab after a deployment.
@@ -57,7 +62,8 @@ come from the same build (ADR-004), so a mismatch means a stale tab after a depl
   `crypto.randomInt` (31^5 ≈ 28.6 million codes). Wrong codes are counted per socket: 5 wrong joins close it.
 - At most `MAX_ROOMS` rooms (ADR-005). A full server answers `reject { reason: "busy" }`; the menu reads
   `GET /status` first and shows "A match is in progress - try again in a few minutes".
-- At most 2 player sockets per room. A room is `waiting` -> `ready` -> `playing` -> `ended` (freed at once).
+- At most 2 player sockets per room. A room is `waiting` -> `playing` -> `over` -> (`playing` again after a rematch)
+  -> closed (freed at once).
 
 | Timeout | Value *(tune)* | Effect |
 | --- | --- | --- |
@@ -65,7 +71,8 @@ come from the same build (ADR-004), so a mismatch means a stale tab after a depl
 | Room waiting for the second player | 3 min | Close room, notify host |
 | No key pressed by a player in a match | 60 s | End the match (`idle` / `opponent_left`) |
 | Heartbeat (ping every 5 s, no pong) | about 10 s | Terminate socket |
-| Match length | 20 min | End match, show result |
+| Match length | 20 min | End match (`time_limit`); normally 10 points come first |
+| Finished match waiting for a rematch | 60 s | Close room (`room_expired`) |
 | Seat held after a dropped socket | - | Not in P2: a dropped socket ends the match (§10) |
 
 - Not implemented yet: a short per-IP cool-down for creating a room after one expired unused, so one client cannot
@@ -88,7 +95,9 @@ nothing about players, codes or addresses.
   at 20 m/s and 8° above the horizon (about 18 m of range on flat ground), and falls with gravity.
 - The server moves every snowball each tick in 1/240 s physics steps against the other player's body (capsule) and
   head (sphere), the crate, the walls and the floor. At most 64 snowballs fly at once; one melts after 4 s.
-- Hit -> score +1, the victim respawns at a server-chosen point and keeps its snowballs (P4: brief invulnerability).
+- Hit -> score +1, the victim respawns at a server-chosen point and keeps its snowballs; for 1.5 s
+  (`SPAWN_PROTECTION`) snowballs fly through it. Clients make a protected fighter blink (they know from the `spawn`
+  event; no extra field). The first to 10 points (`WIN_SCORE`) wins; the match then stops stepping (ADR-014).
 
 ## 6. Messages during a match
 

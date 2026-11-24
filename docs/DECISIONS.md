@@ -216,3 +216,24 @@ decides hits; protocol v2 sends `throw` and `splat` events instead of laser trac
 from the opponent's view (the dashed arc shows where it will land), and suits the second-person idea. The flight is
 deterministic, so it costs two small events per throw instead of a position per tick. Uncapped stock may reward
 hiding; the owner tests it before changing the constant.
+
+---
+
+## ADR-014 - Match rules: first to 10, rematch, countdown, spawn protection
+
+**Date:** 2026-11-24 · **Status:** accepted (owner chose P4a)
+
+**Decision.** A match ends when a player reaches 10 points; both see an end screen and can ask for a rematch, which
+starts when both asked (the room waits 60 s, then closes). Every match starts with a 3 s countdown during which inputs
+are ignored by the server. After a respawn a fighter is protected for 1.5 s (snowballs fly through it; it blinks).
+Your own fighter has a ring on the ground. The training bot aims (with an error) and throws under the same rules.
+Protocol v3: `start` carries the countdown, new messages `over` and `rematch` both ways.
+
+**Alternatives.** Endless matches until the 20-minute limit; rounds; a rematch that needs a new room code; protection
+by a separate flag in every snapshot.
+
+**Reason.** A clear goal and an end make a duel feel finished, and the rematch keeps the same two players without
+codes or the busy server limit getting in the way. The countdown and protection remove unfair moments (moving before
+the other is ready, being hit while finding yourself after a respawn), which matters more with the swapped camera.
+Protection needs no protocol field: the `spawn` event already tells clients when it starts.
+
