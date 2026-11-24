@@ -1,6 +1,6 @@
 // Rooms: codes, the room limit (MAX_ROOMS), timeouts and the 30 Hz tick of every match (docs/NETWORKING.md §4).
 import { createRoomCode, type RandomInt } from '../shared/room-code.ts';
-import type { EndReason, ServerMessage } from '../shared/protocol.ts';
+import { TICK_DT, type EndReason, type ServerMessage } from '../shared/protocol.ts';
 import type { Rng } from '../shared/rng.ts';
 import { Match, type Seat } from './match.ts';
 
@@ -15,6 +15,10 @@ export interface RoomTimeouts {
   waitingRoomTimeoutMs: number;
   idleTimeoutMs: number;
   matchMaxMs: number;
+  /** How long a finished match waits for both players to ask for a rematch. */
+  rematchTimeoutMs: number;
+  /** Countdown before a match starts (s); tests use 0. */
+  countdownSeconds?: number;
 }
 
 interface Room {
@@ -23,6 +27,9 @@ interface Room {
   createdAt: number;
   match: Match | null;
   startedAt: number;
+  /** Set when the match is over (someone reached WIN_SCORE); the room then waits for a rematch. */
+  overAt: number | null;
+  rematch: [boolean, boolean];
 }
 
 export type CreateResult = { ok: true; code: string } | { ok: false; reason: 'busy' };
@@ -63,7 +70,7 @@ export class RoomManager {
     let code: string;
     do code = createRoomCode(this.randomInt);
     while (this.rooms.has(code));
-    const room: Room = { code, seats: [player, null], createdAt: now, match: null, startedAt: 0 };
+    const room: Room = { code, seats: [player, null], createdAt: now, match: null, startedAt: 0, overAt: null, rematch: [false, false] };
     this.rooms.set(code, room);
     this.byPlayer.set(player, room);
     player.send({ t: 'room', code, seat: 0 });
@@ -77,14 +84,34 @@ export class RoomManager {
     if (room.seats[1] || room.seats[0] === player) return { ok: false, reason: 'full' };
     room.seats[1] = player;
     this.byPlayer.set(player, room);
-    room.match = new Match(this.rng);
-    room.startedAt = now;
     player.send({ t: 'room', code, seat: 1 });
+    this.startMatch(room, now);
+    return { ok: true };
+  }
+
+  private startMatch(room: Room, now: number): void {
+    const match = new Match(this.rng, this.timeouts.countdownSeconds);
+    room.match = match;
+    room.startedAt = now;
+    room.overAt = null;
+    room.rematch = [false, false];
     for (const seat of [0, 1] as const) {
-      room.seats[seat]!.send({ t: 'start', tick: 0, you: room.match.pose(seat), opp: room.match.pose(seat === 0 ? 1 : 0) });
+      room.seats[seat]!.send({
+        t: 'start', tick: 0, you: match.pose(seat), opp: match.pose(seat === 0 ? 1 : 0), go: match.goTick * TICK_DT,
+      });
     }
     this.onEvent('match_started');
-    return { ok: true };
+  }
+
+  /** A player asks for a rematch after a finished match. Returns false when the match is not over (ignored). */
+  requestRematch(player: Player, now: number): boolean {
+    const found = this.roomOf(player);
+    if (!found || found.room.overAt === null || found.room.rematch[found.seat]) return false;
+    const { room, seat } = found;
+    room.rematch[seat] = true;
+    if (room.rematch[0] && room.rematch[1]) this.startMatch(room, now);
+    else room.seats[seat === 0 ? 1 : 0]?.send({ t: 'rematch' });
+    return true;
   }
 
   /** Queues an input; false = protocol violation (sequence did not grow) or not in a match. */
@@ -111,6 +138,10 @@ export class RoomManager {
         }
         continue;
       }
+      if (room.overAt !== null) {
+        if (now - room.overAt >= this.timeouts.rematchTimeoutMs) this.closeAll(room, 'room_expired');
+        continue;
+      }
       if (now - room.startedAt >= this.timeouts.matchMaxMs) {
         this.closeAll(room, 'time_limit');
         continue;
@@ -122,8 +153,19 @@ export class RoomManager {
         this.close(room, new Map<Player, EndReason>([[idle, 'idle'], [other, 'opponent_left']]), 'idle');
         continue;
       }
-      room.match.step();
-      for (const seat of [0, 1] as const) room.seats[seat]!.send(room.match.snapshot(seat));
+      const match = room.match;
+      match.step();
+      for (const seat of [0, 1] as const) room.seats[seat]!.send(match.snapshot(seat));
+      if (match.winner !== null) {
+        room.overAt = now;
+        for (const seat of [0, 1] as const) {
+          const other = seat === 0 ? 1 : 0;
+          room.seats[seat]!.send({
+            t: 'over', score: [match.score[seat], match.score[other]], winner: match.winner === seat ? 'you' : 'opp',
+          });
+        }
+        this.onEvent('match_over', { ticks: match.tick });
+      }
     }
   }
 

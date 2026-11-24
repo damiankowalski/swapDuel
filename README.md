@@ -26,7 +26,11 @@ land. The opponent is always at the centre of the screen (the centre is the poin
 2. The other picks **Join game** and types the code.
 3. Once connected, each player clicks **Click to start**.
 
-There is also a **Training (bot)** mode for solo play.
+There is also a **Training (bot)** mode for solo play; the bot throws back.
+
+A match starts after a 3-2-1 countdown and ends when someone reaches **10 points**; then both players can ask for a
+rematch. After being hit you respawn and blink for 1.5 s: snowballs fly through you meanwhile. The blue ring on the
+ground marks your own fighter.
 
 The server runs one match at a time; while one is running, others see "A match is in progress". Online play needs
 the game server: opened from a downloaded file or from GitHub Pages, only training is available.

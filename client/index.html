@@ -93,6 +93,9 @@
   #start{ cursor:pointer; }
   #start .cta{ margin-top:6px; padding:12px 22px; border:1px solid var(--aim);
                color:var(--aim); border-radius:10px; font-weight:700; letter-spacing:.06em; }
+  #countdown{ position:fixed; left:50%; top:38%; transform:translate(-50%,-50%); pointer-events:none;
+               font:800 96px var(--mono); color:var(--aim); text-shadow:0 2px 18px rgba(0,0,0,.6); }
+  #over .score{ font-size:40px; font-weight:800; letter-spacing:.08em; }
   .hidden{ display:none !important; }
 </style>
 </head>
@@ -110,7 +113,7 @@
   </div>
 
   <div class="panel tr">
-    <div class="lbl">Score</div>
+    <div class="lbl">Score · first to 10</div>
     <div class="row"><span class="name you">You</span><span class="val you" id="myScore">0</span></div>
     <div class="row"><span class="name enemy">Opponent</span><span class="val enemy" id="oppScore">0</span></div>
     <div class="lbl" style="margin-top:10px">Snowballs</div>
@@ -128,6 +131,18 @@
 <div id="hitmark">HIT</div>
 <div id="flash"></div>
 <div class="panel bl hidden" id="netStats"></div>
+<div id="countdown" class="hidden"></div>
+
+<!-- MATCH OVER -->
+<div id="over" class="overlay hidden">
+  <h1 id="overTitle">You win!</h1>
+  <div class="score"><span class="you" id="overMine">10</span> : <span class="enemy" id="overTheirs">0</span></div>
+  <div class="col">
+    <button class="btn" id="btnRematch">Rematch</button>
+    <div class="status" id="overStatus"></div>
+    <button class="btn ghost" id="btnMenu">Back to menu</button>
+  </div>
+</div>
 
 <!-- LOBBY -->
 <div id="lobby" class="overlay">

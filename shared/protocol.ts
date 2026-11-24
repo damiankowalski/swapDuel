@@ -2,8 +2,8 @@
 // Both sides validate everything they receive; the server closes the socket on any invalid message.
 import { AMMO_INTERVAL, ARENA_HALF, SNOWBALL_SPEED } from './constants.ts';
 
-/** Bump on every incompatible change; client and server come from the same build. v2: snowballs. */
-export const PROTOCOL_VERSION = 2;
+/** Bump on every incompatible change; client and server come from the same build. v2: snowballs; v3: match rules. */
+export const PROTOCOL_VERSION = 3;
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
 /** Largest frame the server accepts (bytes). */
@@ -48,6 +48,8 @@ export type ClientMessage =
   | { t: 'create' }
   | { t: 'join'; code: string }
   | { t: 'in'; s: number; k: number }
+  /** After a finished match: I want to play again. */
+  | { t: 'rematch' }
   | { t: 'leave' };
 
 // ---------- Server -> client ----------
@@ -55,7 +57,12 @@ export type ServerMessage =
   | { t: 'welcome'; v: number; hz: number }
   | { t: 'reject'; reason: RejectReason }
   | { t: 'room'; code: string; seat: 0 | 1 }
-  | { t: 'start'; tick: number; you: Pose; opp: Pose }
+  /** A match (or a rematch) starts; nobody can move or throw for `go` seconds (the countdown). */
+  | { t: 'start'; tick: number; you: Pose; opp: Pose; go: number }
+  /** Someone reached WIN_SCORE. The room stays open for a rematch. */
+  | { t: 'over'; score: [number, number]; winner: Who }
+  /** The opponent asked for a rematch. */
+  | { t: 'rematch' }
   | {
       t: 'snap';
       tick: number;
@@ -116,6 +123,8 @@ export function parseClientMessage(text: string): ClientMessage | null {
       return onlyKeys(m, ['t', 's', 'k']) && isInt(m['s'], 0, MAX_SEQ) && isInt(m['k'], 0, KEY_MASK)
         ? { t: 'in', s: m['s'], k: m['k'] }
         : null;
+    case 'rematch':
+      return onlyKeys(m, ['t']) ? { t: 'rematch' } : null;
     case 'leave':
       return onlyKeys(m, ['t']) ? { t: 'leave' } : null;
     default:
@@ -192,7 +201,19 @@ export function parseServerMessage(text: string): ServerMessage | null {
     case 'start': {
       const you = parsePose(m['you']);
       const opp = parsePose(m['opp']);
-      return isInt(m['tick'], 0, Number.MAX_SAFE_INTEGER) && you && opp ? { t: 'start', tick: m['tick'], you, opp } : null;
+      return isInt(m['tick'], 0, Number.MAX_SAFE_INTEGER) && you && opp && isNum(m['go'], 10) && (m['go'] as number) >= 0
+        ? { t: 'start', tick: m['tick'], you, opp, go: m['go'] as number }
+        : null;
+    }
+    case 'over': {
+      const score = m['score'];
+      if (!Array.isArray(score) || score.length !== 2 || !score.every((n) => isInt(n, 0, 1_000_000))) return null;
+      return isWho(m['winner'])
+        ? { t: 'over', score: [score[0] as number, score[1] as number], winner: m['winner'] }
+        : null;
+    }
+    case 'rematch': {
+      return { t: 'rematch' };
     }
     case 'snap': {
       const you = parsePose(m['you']);

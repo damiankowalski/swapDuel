@@ -6,80 +6,47 @@ Merge and release only after the owner approves. Versions are tagged at the end 
 ## Done
 
 - **v0.1.0** (Aug 2026): PoC in one `index.html` - second-person view, bot training, P2P online through PeerJS.
+- **P0** (Nov 2026): agent contract, docs, server reconnaissance and security assessment (infrastructure repository).
+- **P1 · v0.2.0**: `client/` + `shared/`, Vite + TypeScript, English UI, tests, CI, Pages from Actions.
+- **P2 · v0.3.0**: authoritative WebSocket server (rooms, `MAX_ROOMS=1`, limits, timeouts), prediction,
+  interpolation, camera filter, lag simulator; camera smoothness tested headlessly (ADR-012).
+- **P2.5 · v0.4.0**: snowballs instead of the laser (ADR-013), protocol v2.
+- **P3 · v0.5.0** (deployed Nov 2026): hardened container image, compose file with an internal network and the tunnel
+  connector, release workflow to GHCR, runbook in the infrastructure repository; deployed behind an invite-only
+  access gate; a match home Wi-Fi <-> mobile data worked (owner, 24 Nov 2026). GitHub Pages to be switched off.
 
 ## Next
 
-### P0 - Bootstrap, reconnaissance, security · S-M · no release · *in review*
+### P4a - Match rules · M · v0.6.0 · *in review*
 
-Agent contract (`AGENTS.md`), docs (`STATUS`, `ROADMAP`, `DECISIONS`, `NETWORKING`, `SECURITY`, `DEPLOYMENT`),
-cross-platform hygiene, server reconnaissance and security assessment (kept in the private infrastructure repository).
+First to 10 points wins; an end screen with **Rematch** (both players must ask; the room waits 60 s); a 3-2-1
+countdown before every match; 1.5 s of spawn protection (snowballs fly through, the fighter blinks); a ring on the
+ground under your own fighter; a training bot that aims and throws. Protocol v3 (ADR-014).
 
-**Done when:** both P0 pull requests (this repository and the infrastructure one) are approved and merged.
+**Done when:** both modes end at 10 with a winner and a rematch; the rules are server-side and tested.
 
-### P1 - Restructure · M · v0.2.0 · *in review*
+### P4b - Arena 2 with a ditch · M · v0.7.0
 
-- `client/` + `shared/`, Vite + TypeScript, Three.js from npm; `npm run build` gives one `dist/index.html`.
-- Game moved 1:1: same arena, movement, timings and bot. Simulation (movement, collisions, hit raycast, bot) moves to
-  `shared/`, without Three.js.
-- UI and comments translated to English.
-- Tests for `shared/` (`node:test`): collision resolution, movement, hit raycast, bot stays inside the arena;
-  `npm run sim` runs a headless bot-vs-bot match.
-- CI on every pull request: `npm ci`, `typecheck`, `test`, `build`, `npm audit --omit=dev`; Dependabot for npm.
-- `.nvmrc`, `engines`, lockfile committed.
-- **Keeps `main` playable on GitHub Pages:** Pages switches from "serve `main`" to a GitHub Actions deployment of
-  `dist/` (moving `index.html` would otherwise break the live page). The P2P online mode stays as it is until P2,
-  with PeerJS from npm (ADR-008).
+A bigger arena (about 28 x 28 m) with a ditch along the walls: falling in gives the opponent a point (like a hit) and
+respawns you; two or three smaller crates instead of one big one. The host picks the map when creating a game; the bot
+avoids the ditch. Same match rules as P4a.
 
-**Done when:** offline and bot mode behave as in v0.1.0; the build is a single `index.html`; CI is green.
+**Done when:** both maps are playable online and in training; falling in scores for the opponent; tests cover the
+ditch, the map choice and the bot.
 
-Built as planned; on top: P2P message validation and the room-code fix (`STATUS.md`). `npm run sim` has no
-simulated lag yet; the lag simulator belongs to the network layer and arrives in P2.
+### P4c - Winter look and sound · M · v0.8.0
 
-### P2 - Server, locally · M-L · v0.3.0 · *in review*
+Textures generated locally by the owner's image models (snow ground, walls, crates, sky; small files, licences
+checked), snowmen fighters built from simple shapes, simple animations in code (walk, throw, hit, fall), sounds
+generated with Web Audio (throw, splat, hit, point, win). The Three.js upgrade proposed by Dependabot is tested here.
 
-- `server/`: Node + `ws`, serves `dist/`, WebSocket `/ws`, `GET /status`; configuration by environment variables
-  (`HOST`, `PORT`, `MAX_ROOMS=1`, `ALLOWED_ORIGIN`, `CLIENT_IP_HEADER`, timeouts).
-- Rooms with codes and the limit, timeouts, authoritative movement and hits at 30 Hz, protocol version in the
-  handshake, schema validation, message and connection limits, heartbeat.
-- Client: prediction and reconciliation, opponent interpolation (about 100 ms buffer), camera smoothing, lag simulator
-  (ping, jitter, loss) in dev builds, readable "server busy" state in the menu. PeerJS removed.
-- Tests: validation (bad and unknown messages close the socket), limits (third tab gets `busy`, rate limit, payload
-  size), timeouts, server-side hit detection, a headless two-client match with simulated lag; camera jitter metric
-  under 150 ms + jitter stays within the threshold in `NETWORKING.md`.
-
-**Done when:** two tabs play through localhost at 150 ms + jitter and the camera does not shake; a third tab gets
-"busy"; all tests green.
-
-Built as planned, with three scope changes (ADR-012): no `ready` step, no reconnect yet, and the camera criterion
-is "smooth with rare bridged starvations" (thresholds and measurements in `NETWORKING.md` §12).
-
-### P2.5 - Snowballs · M · v0.4.0 · *in review*
-
-Owner's request, ahead of P4 (ADR-013): snowballs (ballistic, 5 at the start, +1 every 10 s, no cap) replace the
-hit-scan laser in online play and training; protocol v2; HUD with the stock and a dashed arc showing the landing point.
-
-**Done when:** throws, flight, hits and the stock are server-side and tested; both modes play with snowballs.
-
-### P3 - Deployment · S-M · v0.5.0 · *in review; then the owner deploys*
-
-- `deploy/`: container image (non-root, read-only), compose file with an outbound tunnel connector, hardening as in
-  `SECURITY.md`; image built and published by GitHub Actions on a tag (ADR-010); invite-only access gate (ADR-009).
-- Runbook that the owner runs, including isolation checks and rollback; a matching pull request in the private
-  infrastructure repository (folder on the server, docs).
-- Security checklist from `SECURITY.md` ticked off; GitHub Pages switched off or turned into a redirect.
-
-**Done when:** the owner deploys by the runbook; a match home Wi-Fi <-> mobile LTE works; the checklist is complete.
-
-Built: `deploy/` (Dockerfile, compose file, env template), the CI job that starts the hardened image, the release
-workflow, `DEPLOYMENT.md`; the server-side runbook and the playbook part are in the infrastructure repository.
+**Done when:** the game looks wintry, gives audible feedback, and the single-file build stays small (about 1 MB).
 
 ## Later
 
-### P4+ - Gameplay · sizes later
-
-Respawn with brief invulnerability, sound, mouse aim (pointer lock, pitch), round/score rules, bot that fights back,
-reconnect into a running match (ADR-012), lag compensation, a per-IP room cool-down before opening the game to the
-public. Scope decided after P3.
+Reconnect into a running match (ADR-012), lag compensation, mouse aim (pointer lock, pitch), a per-IP room
+cool-down before the game is opened to the public. Kept out on purpose for now (the swapped camera is demanding
+enough): other weapons, power-ups, more than two players.
 
 ## Decisions taken in P0
 

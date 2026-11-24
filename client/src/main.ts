@@ -6,16 +6,20 @@ import { createBot, respawnBot, stepBot, type BotState } from '../../shared/bot.
 import {
   AMMO_INTERVAL,
   ARENA_HALF,
+  COUNTDOWN,
   CRATE_HALF,
   CRATE_HEIGHT,
   MAX_FRAME_DT,
   SNOWBALL_LIFETIME,
   SNOWBALL_RADIUS,
+  SPAWN_PROTECTION,
   SPAWN_GUEST,
   SPAWN_HOST,
   WALL_HEIGHT,
   WALL_THICKNESS,
+  WIN_SCORE,
 } from '../../shared/constants.ts';
+import { randomSpawnPoint } from '../../shared/arena.ts';
 import { lagFromParams } from '../../shared/lag.ts';
 import type { Vec2, Vec3 } from '../../shared/math.ts';
 import { AngleFilter, CAMERA_POSITION_FILTER, CAMERA_YAW_FILTER, OneEuroFilter } from '../../shared/one-euro.ts';
@@ -72,7 +76,7 @@ const END_TEXT: Record<EndReason, string> = {
   opponent_left: 'Your opponent left the match.',
   time_limit: 'Time is up: matches last at most 20 minutes.',
   idle: 'You were idle for too long.',
-  room_expired: 'Nobody joined in time. Create a new game to try again.',
+  room_expired: 'The game room closed: nobody joined in time, or no rematch was agreed.',
   server_shutdown: 'The server is restarting. Try again in a moment.',
 };
 
@@ -152,6 +156,14 @@ function makeFighter(hex: number): THREE.Group {
   return g;
 }
 const meshA = makeFighter(0x4da3ff); // you (local)
+// A ring on the ground under your own fighter: easier to find yourself through the opponent's eyes.
+const ring = new THREE.Mesh(
+  new THREE.RingGeometry(0.62, 0.8, 40),
+  new THREE.MeshBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.03;
+meshA.add(ring);
 const meshB = makeFighter(0xff5a5a); // opponent (remote or bot)
 
 // ---------- State ----------
@@ -176,6 +188,20 @@ const camZ = new OneEuroFilter(CAMERA_POSITION_FILTER);
 let myScore = 0;
 let oppScore = 0;
 let thrower = createThrower();
+let botThrower = createThrower();
+
+// match flow (both modes)
+/** performance.now() at which the countdown ends and play starts. */
+let countdownEnd = 0;
+let matchOver = false;
+/** Until when (performance.now()) snowballs fly through you / the opponent after a respawn; they blink meanwhile. */
+let myShieldUntil = 0;
+let oppShieldUntil = 0;
+
+/** Inputs count: the start screen was clicked, the countdown is over and nobody has won yet. */
+function live(): boolean {
+  return playing && !matchOver && performance.now() >= countdownEnd;
+}
 
 // ---------- Input ----------
 const keys: Record<string, boolean> = Object.create(null);
@@ -196,7 +222,7 @@ addEventListener('blur', () => {
 });
 
 function keyMask(): number {
-  if (!playing) return 0;
+  if (!live()) return 0;
   let k = 0;
   if (keys['KeyW']) k |= KEY_FORWARD;
   if (keys['KeyS']) k |= KEY_BACK;
@@ -220,6 +246,8 @@ let playing = false;
 startEl.addEventListener('click', () => {
   playing = true;
   firePressed = false;
+  // Training counts down from the click; online the server's countdown is already running.
+  if (mode === 'bot') countdownEnd = performance.now() + COUNTDOWN * 1000;
   startEl.classList.add('hidden');
 });
 
@@ -260,8 +288,11 @@ function backToLobby(message = ''): void {
   session = null;
   mode = null;
   playing = false;
+  matchOver = false;
   clearBalls();
   startEl.classList.add('hidden');
+  byId('over').classList.add('hidden');
+  byId('countdown').classList.add('hidden');
   byId('netStats').classList.add('hidden');
   byId('lobby').classList.remove('hidden');
   showPanel('choice');
@@ -281,7 +312,9 @@ async function openSession(panel: 'hostStatus' | 'joinStatus'): Promise<OnlineSe
           setStatus('hostStatus', 'Waiting for a player...');
         } else setStatus('joinStatus', 'Joined!');
       },
-      onStart: (you, opp) => startOnline(you, opp),
+      onStart: (you, opp, go) => startOnline(you, opp, go),
+      onOver: (score, winner) => showOver(score, winner),
+      onRematchWanted: () => setStatus('overStatus', 'Your opponent wants a rematch!'),
       onSnapshot: (tick, score, events) => onSnapshot(tick, score, events),
       onReject: (reason) => {
         setStatus(panel, REJECT_TEXT[reason]);
@@ -336,15 +369,59 @@ document.querySelectorAll<HTMLElement>('[data-back]').forEach((el) => (el.onclic
 function enterGame(status: string): void {
   myScore = 0;
   oppScore = 0;
+  matchOver = false;
+  myShieldUntil = 0;
+  oppShieldUntil = 0;
   updateScoreboard();
   byId('modeStatus').innerHTML = status;
   byId('lobby').classList.add('hidden');
-  startEl.classList.remove('hidden');
+  byId('over').classList.add('hidden');
+  // A rematch goes straight to the countdown; the first match waits for a click on the start screen.
+  if (!playing) startEl.classList.remove('hidden');
+}
+
+// ---------- Match over and rematch ----------
+function showOver(score: [number, number], winner: 'you' | 'opp'): void {
+  matchOver = true;
+  [myScore, oppScore] = score;
+  updateScoreboard();
+  byId('overTitle').textContent = winner === 'you' ? 'You win!' : 'You lose';
+  byId('overMine').textContent = String(score[0]);
+  byId('overTheirs').textContent = String(score[1]);
+  setStatus('overStatus', mode === 'online' ? 'Both players must ask for a rematch.' : '');
+  const rematch = byId<HTMLButtonElement>('btnRematch');
+  rematch.disabled = false;
+  byId('over').classList.remove('hidden');
+}
+
+byId('btnRematch').onclick = () => {
+  if (mode === 'bot') {
+    startBot();
+    countdownEnd = performance.now() + COUNTDOWN * 1000;
+    return;
+  }
+  session?.rematch();
+  byId<HTMLButtonElement>('btnRematch').disabled = true;
+  setStatus('overStatus', 'Waiting for your opponent...');
+};
+byId('btnMenu').onclick = () => backToLobby();
+
+function updateCountdown(): void {
+  const el = byId('countdown');
+  const left = countdownEnd - performance.now();
+  if (!playing || matchOver || left < -700) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.textContent = left > 0 ? String(Math.ceil(left / 1000)) : 'GO!';
+  el.classList.remove('hidden');
 }
 
 function startBot(): void {
   mode = 'bot';
   thrower = createThrower();
+  botThrower = createThrower();
+  countdownEnd = Infinity; // starts at the click on the start screen
   clearBalls();
   a.pos = { x: SPAWN_HOST.x, z: SPAWN_HOST.z };
   a.yaw = SPAWN_HOST.yaw;
@@ -352,8 +429,9 @@ function startBot(): void {
   enterGame('Training vs bot — <span class="you">blue</span> is you, you see through <span class="enemy">red</span>\'s eyes.');
 }
 
-function startOnline(you: Pose, opp: Pose): void {
+function startOnline(you: Pose, opp: Pose, go: number): void {
   mode = 'online';
+  countdownEnd = performance.now() + go * 1000;
   tickAcc = 0;
   clearBalls();
   view.me = { ...you };
@@ -391,6 +469,8 @@ const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true
 interface LocalBall {
   ball: Snowball;
   mesh: THREE.Mesh;
+  /** Thrown by us, or by the training bot. */
+  byBot: boolean;
 }
 /** The opponent's snowballs, drawn on the same delayed clock as the opponent. */
 interface RemoteBall {
@@ -441,26 +521,33 @@ function puff(at: Vec3): void {
   grow();
 }
 
-function throwLocal(from: Vec2, yaw: number): void {
+function throwLocal(from: Vec2, yaw: number, byBot = false): void {
   const start = launch(from, yaw);
-  localBalls.push({ ball: { id: 0, owner: 0, pos: start.pos, vel: start.vel, age: 0 }, mesh: ballMesh() });
+  localBalls.push({ ball: { id: 0, owner: byBot ? 1 : 0, pos: start.pos, vel: start.vel, age: 0 }, mesh: ballMesh(), byBot });
 }
 
-/** Moves our own snowballs; `target` is the opponent as drawn. Returns true when one hits it. */
-function updateLocalBalls(dt: number, target: Vec2): boolean {
-  let hit = false;
+/**
+ * Moves the locally simulated snowballs. Ours fly at `opp` (the opponent as drawn), the bot's at `me`; a target that
+ * is null (or shielded) is not hit. Returns which side landed a hit this frame.
+ */
+function updateLocalBalls(dt: number, opp: Vec2 | null, me: Vec2 | null): { mine: boolean; bots: boolean } {
+  const hits = { mine: false, bots: false };
   localBalls = localBalls.filter((b) => {
-    const impact = stepSnowball(b.ball, dt, [{ seat: 1, pos: target }]);
+    const target = b.byBot ? me : opp;
+    const impact = stepSnowball(b.ball, dt, target ? [{ seat: b.byBot ? 0 : 1, pos: target }] : []);
     if (!impact) {
       b.mesh.position.set(b.ball.pos.x, b.ball.pos.y, b.ball.pos.z);
       return true;
     }
-    if (impact.kind === 'target') hit = true;
+    if (impact.kind === 'target') {
+      if (b.byBot) hits.bots = true;
+      else hits.mine = true;
+    }
     puff(impact.point);
     removeMesh(b.mesh);
     return false;
   });
-  return hit;
+  return hits;
 }
 
 function updateRemoteBalls(renderTick: number): void {
@@ -507,14 +594,22 @@ function onSnapshot(tick: number, score: [number, number], events: GameEvent[]):
     } else if (e.k === 'hit') {
       if (e.by === 'you') showHitmark();
       else flashHit();
+    } else if (e.k === 'spawn') {
+      const now = performance.now();
+      // The opponent is drawn on a delayed clock, so its blinking starts later too.
+      if (e.who === 'you') myShieldUntil = now + SPAWN_PROTECTION * 1000;
+      else oppShieldUntil = now + (SPAWN_PROTECTION + (session?.interp.delay ?? 0)) * 1000;
     }
   }
 }
 
 // ---------- Training mode ----------
 function updateTraining(dt: number): void {
-  tickThrower(thrower, dt);
-  if (playing) {
+  if (matchOver) return;
+  const now = performance.now();
+  const started = now >= countdownEnd;
+  if (live()) tickThrower(thrower, dt);
+  if (live()) {
     stepPlayer(
       a,
       {
@@ -529,12 +624,29 @@ function updateTraining(dt: number): void {
     );
     if (pressFire(thrower, takeFire())) throwLocal(a.pos, a.yaw);
   }
-  stepBot(b, dt, rng);
-  if (updateLocalBalls(dt, b.pos)) {
+  if (started) {
+    const wantsThrow = stepBot(b, dt, rng, a.pos);
+    if (live()) {
+      tickThrower(botThrower, dt);
+      if (pressFire(botThrower, wantsThrow)) throwLocal(b.pos, b.lookYaw, true);
+    }
+  }
+  const hits = updateLocalBalls(dt, now < oppShieldUntil ? null : b.pos, now < myShieldUntil ? null : a.pos);
+  if (hits.mine) {
     myScore++;
-    updateScoreboard();
     showHitmark();
     respawnBot(b, rng);
+    oppShieldUntil = now + SPAWN_PROTECTION * 1000;
+  }
+  if (hits.bots) {
+    oppScore++;
+    flashHit();
+    a.pos = randomSpawnPoint(rng);
+    myShieldUntil = now + SPAWN_PROTECTION * 1000;
+  }
+  if (hits.mine || hits.bots) {
+    updateScoreboard();
+    if (myScore >= WIN_SCORE || oppScore >= WIN_SCORE) showOver([myScore, oppScore], myScore >= WIN_SCORE ? 'you' : 'opp');
   }
   updateAmmoHud(thrower.ammo, secondsToNextSnowball(thrower));
   view.me = { x: a.pos.x, z: a.pos.z, yaw: a.yaw };
@@ -543,6 +655,7 @@ function updateTraining(dt: number): void {
 
 // ---------- Online mode ----------
 function updateOnline(dt: number, s: OnlineSession): void {
+  if (matchOver) return;
   tickAcc += dt;
   while (tickAcc >= TICK_DT) {
     tickAcc -= TICK_DT;
@@ -562,7 +675,7 @@ function updateOnline(dt: number, s: OnlineSession): void {
     view.opp = sample.pose;
     updateRemoteBalls(sample.renderTick);
   }
-  updateLocalBalls(dt, view.opp);
+  updateLocalBalls(dt, performance.now() < oppShieldUntil ? null : view.opp, null);
   updateAmmoHud(s.ammo, s.nextSnowball);
   if (showNetStats) {
     const st = s.stats;
@@ -598,6 +711,11 @@ function updateCamera(dt: number): void {
     meshA.visible = false;
     meshB.visible = true;
   }
+  // Shielded fighters blink.
+  const now = performance.now();
+  const blinkOff = Math.floor(now / 120) % 2 === 1;
+  if (now < myShieldUntil && blinkOff) meshA.visible = false;
+  if (now < oppShieldUntil && blinkOff) meshB.visible = false;
 }
 
 // ---------- Aim: the arc of the next snowball and where it lands ----------
@@ -655,6 +773,7 @@ function animate(): void {
   placeMeshes();
   updateCamera(dt);
   updateAim();
+  updateCountdown();
   renderer.render(scene, camera);
 }
 placeMeshes();

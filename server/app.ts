@@ -198,6 +198,10 @@ export function createGameServer(config: Config, now: () => number = Date.now): 
             if (!rooms.input(this, msg.s, msg.k)) this.fail(1008, 'sequence');
             return;
           }
+          if (msg.t === 'rematch') {
+            rooms.requestRematch(this, now());
+            return;
+          }
           if (msg.t === 'leave') {
             rooms.leave(this);
             return this.end();

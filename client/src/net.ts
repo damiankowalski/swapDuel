@@ -20,7 +20,10 @@ import {
 
 export interface SessionHandlers {
   onRoom(code: string, seat: 0 | 1): void;
-  onStart(you: Pose, opp: Pose): void;
+  /** A match or a rematch starts after a countdown of `go` seconds. */
+  onStart(you: Pose, opp: Pose, go: number): void;
+  onOver(score: [number, number], winner: 'you' | 'opp'): void;
+  onRematchWanted(): void;
   onSnapshot(tick: number, score: [number, number], events: GameEvent[]): void;
   onReject(reason: RejectReason): void;
   onEnd(reason: EndReason): void;
@@ -79,7 +82,7 @@ class DelayQueue {
 
 export class OnlineSession {
   predictor: Predictor | null = null;
-  readonly interp = new SnapshotInterpolator();
+  interp = new SnapshotInterpolator();
   private ws: WebSocket | null = null;
   private readonly handlers: SessionHandlers;
   private readonly outLag: DelayQueue | null;
@@ -88,7 +91,7 @@ export class OnlineSession {
   private rtt = 0;
   private finished = false;
   /** Local copy of the throwing rules, so our own snowballs leave the hand at once. The server's stock is the truth. */
-  private readonly thrower = createThrower();
+  private thrower = createThrower();
   /** Inputs not yet acknowledged that threw a snowball. */
   private readonly pendingThrows = new Set<number>();
   /** Snowballs and seconds to the next one, from the latest snapshot. */
@@ -164,6 +167,11 @@ export class OnlineSession {
     return Math.max(0, this.serverAmmo - this.pendingThrows.size);
   }
 
+  /** After a finished match: ask for a rematch. */
+  rematch(): void {
+    this.send({ t: 'rematch' });
+  }
+
   leave(): void {
     this.finished = true;
     this.send({ t: 'leave' });
@@ -198,10 +206,21 @@ export class OnlineSession {
         this.handlers.onRoom(msg.code, msg.seat);
         return;
       case 'start':
+        // A rematch starts from tick 0 again: everything per match is reset.
         this.predictor = new Predictor(msg.you);
+        this.interp = new SnapshotInterpolator();
+        this.thrower = createThrower();
+        this.pendingThrows.clear();
+        this.sentAt.clear();
         this.serverAmmo = this.thrower.ammo;
         this.interp.push(msg.tick, msg.opp, true, nowSec());
-        this.handlers.onStart(msg.you, msg.opp);
+        this.handlers.onStart(msg.you, msg.opp, msg.go);
+        return;
+      case 'over':
+        this.handlers.onOver(msg.score, msg.winner);
+        return;
+      case 'rematch':
+        this.handlers.onRematchWanted();
         return;
       case 'snap': {
         if (!this.predictor) return;
