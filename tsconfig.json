@@ -1,5 +1,5 @@
 {
-  // Node side: the server, tests, tools and the Vite config (Node runs the .ts files directly).
+  // Node side: the server, tests, tools, the client's pure animation curves and the Vite config (Node runs the .ts files directly).
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
@@ -7,5 +7,5 @@
     "moduleResolution": "nodenext",
     "types": ["node"]
   },
-  "include": ["shared/**/*.ts", "server/**/*.ts", "tools/**/*.ts", "vite.config.ts"]
+  "include": ["shared/**/*.ts", "server/**/*.ts", "tools/**/*.ts", "client/src/anim.ts", "client/src/anim.test.ts", "vite.config.ts"]
 }

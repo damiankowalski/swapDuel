@@ -13,7 +13,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p client/tsconfig.json && tsc -p tsconfig.json",
-    "test": "node --test \"shared/**/*.test.ts\" \"server/**/*.test.ts\" \"tools/**/*.test.ts\"",
+    "test": "node --test \"shared/**/*.test.ts\" \"server/**/*.test.ts\" \"tools/**/*.test.ts\" \"client/**/*.test.ts\"",
     "sim": "node tools/sim.ts",
     "server": "node server/main.ts",
     "play": "npm run build && npm run server"
