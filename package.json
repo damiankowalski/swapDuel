@@ -19,12 +19,12 @@
     "play": "npm run build && npm run server"
   },
   "dependencies": {
-    "three": "0.160.0",
+    "three": "0.187.0",
     "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "@types/three": "0.160.0",
+    "@types/three": "0.187.0",
     "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
