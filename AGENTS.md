@@ -11,7 +11,7 @@ of the screen (the point they look from), so you throw your snowball's arc towar
 
 - 1v1 on a square arena: **Classic** (20 x 20 m, one crate) or **Frozen moat** (28 x 28 m, three crates, a ditch
   along the walls; falling in gives the opponent a point). The host picks the arena.
-- Controls: `W A S D` move, `<-` `->` turn, `Space` throw a snowball, `V` toggle view (opponent's eyes <-> own).
+- Controls: `W A S D` move, `<-` `->` turn, `Space` throw a snowball, `V` toggle view (opponent's eyes <-> own), `M` sound on/off.
 - Snowballs fly in an arc (about 18 m); 5 at the start, one more every 10 s, no cap. A dashed arc and the reticle
   show where the next one lands.
 - A match is first to 10 points, after a 3-2-1 countdown; then a rematch. 1.5 s of spawn protection after a hit.
@@ -26,12 +26,14 @@ of the screen (the point they look from), so you throw your snowball's arc towar
 
 ## Repository map
 
-Today (P4b, v0.7.0):
+Today (P4c, v0.8.0):
 
 ```
 swapduel/
-├─ client/                Vite entry: index.html (markup + CSS), src/main.ts (rendering, input, HUD, training),
-│                         src/net.ts (online session: WebSocket, prediction, interpolation, dev lag simulator)
+├─ client/                Vite entry: index.html (markup + CSS), src/main.ts (game loop, input, HUD, training),
+│                         src/net.ts (online session: WebSocket, prediction, interpolation, dev lag simulator),
+│                         src/scenery.ts, fighter.ts, effects.ts, sound.ts (look and sound), src/anim.ts (pure
+│                         animation curves, tested), assets/ (generated textures, inlined by the build)
 ├─ server/                game server, TypeScript run directly by Node: app.ts (HTTP + WebSocket, limits),
 │                         rooms.ts (codes, MAX_ROOMS, timeouts), match.ts (authoritative 30 Hz simulation),
 │                         config.ts (environment), limits.ts, main.ts (entry); *.test.ts next to them
@@ -76,7 +78,7 @@ Keep these names stable; CI runs the same ones.
 | `npm run build` | Build the client to `dist/index.html` (one self-contained file) |
 | `npm run preview` | Serve the built `dist/` locally |
 | `npm run typecheck` | `tsc` (no emit) for shared, client and the Node side |
-| `npm test` | `node --test` on `shared/`, `server/` and `tools/` tests (unit, socket integration, camera metrics) |
+| `npm test` | `node --test` on `shared/`, `server/`, `tools/` and `client/` tests (unit, socket integration, camera metrics, animation curves) |
 | `npm run sim -- --seconds 300 --seed 1` | Headless bot-vs-bot match; fails if a fighter ever leaves the valid area |
 | `npm run sim -- --net --lag 150 --jitter 30 --stall 0.02` | Headless network match: camera smoothness vs v0.1.0 |
 | `npm run server` | Game server on `http://127.0.0.1:8080` (serves `dist/`, `/ws`, `/status`); env vars in `server/config.ts` |
