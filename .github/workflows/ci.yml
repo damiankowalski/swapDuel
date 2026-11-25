@@ -49,7 +49,7 @@ jobs:
       - name: It answers, with the expected headers, as a non-root user
         run: |
           set -e
-          test "$(curl -fsS http://127.0.0.1:18080/status)" = '{"state":"free","protocol":3}'
+          test "$(curl -fsS http://127.0.0.1:18080/status)" = '{"state":"free","protocol":4}'
           curl -fsSI http://127.0.0.1:18080/ | grep -i "content-security-policy: default-src 'none'"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/nope)" = 404
           test "$(docker exec swapduel id -u)" = 1000

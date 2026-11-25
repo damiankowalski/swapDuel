@@ -5,21 +5,18 @@ import * as THREE from 'three';
 import { createBot, respawnBot, stepBot, type BotState } from '../../shared/bot.ts';
 import {
   AMMO_INTERVAL,
-  ARENA_HALF,
   COUNTDOWN,
-  CRATE_HALF,
-  CRATE_HEIGHT,
   MAX_FRAME_DT,
   SNOWBALL_LIFETIME,
   SNOWBALL_RADIUS,
   SPAWN_PROTECTION,
   SPAWN_GUEST,
   SPAWN_HOST,
-  WALL_HEIGHT,
   WALL_THICKNESS,
   WIN_SCORE,
 } from '../../shared/constants.ts';
-import { randomSpawnPoint } from '../../shared/arena.ts';
+import { inDitch, randomSpawnPoint } from '../../shared/arena.ts';
+import { ditchEdge, MAPS, type ArenaMap, type MapId } from '../../shared/maps.ts';
 import { lagFromParams } from '../../shared/lag.ts';
 import type { Vec2, Vec3 } from '../../shared/math.ts';
 import { AngleFilter, CAMERA_POSITION_FILTER, CAMERA_YAW_FILTER, OneEuroFilter } from '../../shared/one-euro.ts';
@@ -98,39 +95,83 @@ sun.position.set(6, 12, 4);
 scene.add(sun);
 
 // ---------- Arena ----------
-function buildArena(): void {
+let arenaMap: ArenaMap = MAPS.classic;
+let arenaGroup = new THREE.Group();
+
+/** Builds the arena's meshes (floor, ditch, walls, crates) into a group that replaces the previous one. */
+function buildArena(map: ArenaMap): void {
+  scene.remove(arenaGroup);
+  arenaGroup.traverse((o) => {
+    if (o instanceof THREE.Mesh) o.geometry.dispose();
+  });
+  arenaGroup = new THREE.Group();
+  const g = arenaGroup;
+  const edge = map.ditch > 0 ? ditchEdge(map) : map.half;
+  const depth = map.ditchDepth;
+
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
+    new THREE.PlaneGeometry(edge * 2, edge * 2),
     new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.95 }),
   );
   floor.rotation.x = -Math.PI / 2;
-  scene.add(floor);
+  g.add(floor);
 
-  const grid = new THREE.GridHelper(ARENA_HALF * 2, 20, 0x3d4653, 0x333b45);
+  const grid = new THREE.GridHelper(edge * 2, Math.round(edge * 2), 0x3d4653, 0x333b45);
   grid.position.y = 0.02;
-  scene.add(grid);
+  g.add(grid);
+
+  if (map.ditch > 0) {
+    // The ditch: a lower, icy floor between the playable square and the walls, with a bright lip so the edge reads
+    // well through the opponent's eyes.
+    const ditchFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(map.half * 2, map.half * 2),
+      new THREE.MeshStandardMaterial({ color: 0x16273a, roughness: 0.4, metalness: 0.1 }),
+    );
+    ditchFloor.rotation.x = -Math.PI / 2;
+    ditchFloor.position.y = -depth;
+    g.add(ditchFloor);
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x24384d, roughness: 0.8 });
+    const lipMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
+    for (const [w, d, x, z] of [
+      [edge * 2, 0.1, 0, edge], [edge * 2, 0.1, 0, -edge], [0.1, edge * 2, edge, 0], [0.1, edge * 2, -edge, 0],
+    ] as const) {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(w, depth, d), sideMat);
+      side.position.set(x, -depth / 2, z);
+      g.add(side);
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(w || 0.14, 0.04, d || 0.14), lipMat);
+      lip.position.set(x, 0.02, z);
+      g.add(lip);
+    }
+  }
 
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x323b4a, roughness: 0.9 });
+  const wallH = map.wallHeight + depth;
   const mkWall = (w: number, d: number, x: number, z: number) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_HEIGHT, d), wallMat);
-    m.position.set(x, WALL_HEIGHT / 2, z);
-    scene.add(m);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
+    m.position.set(x, wallH / 2 - depth, z);
+    g.add(m);
   };
-  const S = ARENA_HALF * 2;
+  const S = map.half * 2;
   const t = WALL_THICKNESS;
-  mkWall(S + t, t, 0, ARENA_HALF);
-  mkWall(S + t, t, 0, -ARENA_HALF);
-  mkWall(t, S + t, ARENA_HALF, 0);
-  mkWall(t, S + t, -ARENA_HALF, 0);
+  mkWall(S + t, t, 0, map.half);
+  mkWall(S + t, t, 0, -map.half);
+  mkWall(t, S + t, map.half, 0);
+  mkWall(t, S + t, -map.half, 0);
 
-  const crate = new THREE.Mesh(
-    new THREE.BoxGeometry(CRATE_HALF * 2, CRATE_HEIGHT, CRATE_HALF * 2),
-    new THREE.MeshStandardMaterial({ color: 0xcaa23c, roughness: 0.6, metalness: 0.1 }),
-  );
-  crate.position.set(0, CRATE_HEIGHT / 2, 0);
-  scene.add(crate);
+  const crateMat = new THREE.MeshStandardMaterial({ color: 0xcaa23c, roughness: 0.6, metalness: 0.1 });
+  for (const c of map.crates) {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(c.half * 2, c.height, c.half * 2), crateMat);
+    crate.position.set(c.x, c.height / 2, c.z);
+    g.add(crate);
+  }
+  scene.add(g);
+  arenaMap = map;
 }
-buildArena();
+
+function setArena(map: ArenaMap): void {
+  if (map !== arenaMap || arenaGroup.children.length === 0) buildArena(map);
+}
+buildArena(MAPS.classic);
 
 // ---------- Fighters ----------
 function makeFighter(hex: number): THREE.Group {
@@ -259,6 +300,24 @@ function toggleView(): void {
 const btnHost = byId<HTMLButtonElement>('btnHost');
 const btnJoin = byId<HTMLButtonElement>('btnJoin');
 
+/** The arena for training and for games this player creates (a guest plays the host's choice). */
+let selectedMap: MapId = 'classic';
+document.querySelectorAll<HTMLButtonElement>('#mapChoice [data-map]').forEach((btn) => {
+  btn.onclick = () => {
+    selectedMap = btn.dataset['map'] === 'moat' ? 'moat' : 'classic';
+    document.querySelectorAll('#mapChoice [data-map]').forEach((b) => b.classList.toggle('on', b === btn));
+  };
+});
+
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+function toast(text: string): void {
+  const el = byId('toast');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 2200);
+}
+
 function setStatus(id: string, text: string): void {
   byId(id).textContent = text;
 }
@@ -312,7 +371,7 @@ async function openSession(panel: 'hostStatus' | 'joinStatus'): Promise<OnlineSe
           setStatus('hostStatus', 'Waiting for a player...');
         } else setStatus('joinStatus', 'Joined!');
       },
-      onStart: (you, opp, go) => startOnline(you, opp, go),
+      onStart: (you, opp, go, map) => startOnline(you, opp, go, map),
       onOver: (score, winner) => showOver(score, winner),
       onRematchWanted: () => setStatus('overStatus', 'Your opponent wants a rematch!'),
       onSnapshot: (tick, score, events) => onSnapshot(tick, score, events),
@@ -343,7 +402,7 @@ btnHost.onclick = async () => {
   const s = await openSession('hostStatus');
   if (s) {
     setStatus('hostStatus', 'Creating room...');
-    s.create();
+    s.create(selectedMap);
   }
 };
 btnJoin.onclick = () => {
@@ -419,6 +478,7 @@ function updateCountdown(): void {
 
 function startBot(): void {
   mode = 'bot';
+  setArena(MAPS[selectedMap]);
   thrower = createThrower();
   botThrower = createThrower();
   countdownEnd = Infinity; // starts at the click on the start screen
@@ -429,8 +489,9 @@ function startBot(): void {
   enterGame('Training vs bot — <span class="you">blue</span> is you, you see through <span class="enemy">red</span>\'s eyes.');
 }
 
-function startOnline(you: Pose, opp: Pose, go: number): void {
+function startOnline(you: Pose, opp: Pose, go: number, map: MapId): void {
   mode = 'online';
+  setArena(MAPS[map]);
   countdownEnd = performance.now() + go * 1000;
   tickAcc = 0;
   clearBalls();
@@ -534,7 +595,7 @@ function updateLocalBalls(dt: number, opp: Vec2 | null, me: Vec2 | null): { mine
   const hits = { mine: false, bots: false };
   localBalls = localBalls.filter((b) => {
     const target = b.byBot ? me : opp;
-    const impact = stepSnowball(b.ball, dt, target ? [{ seat: b.byBot ? 0 : 1, pos: target }] : []);
+    const impact = stepSnowball(b.ball, dt, target ? [{ seat: b.byBot ? 0 : 1, pos: target }] : [], arenaMap);
     if (!impact) {
       b.mesh.position.set(b.ball.pos.x, b.ball.pos.y, b.ball.pos.z);
       return true;
@@ -594,6 +655,11 @@ function onSnapshot(tick: number, score: [number, number], events: GameEvent[]):
     } else if (e.k === 'hit') {
       if (e.by === 'you') showHitmark();
       else flashHit();
+    } else if (e.k === 'fall') {
+      if (e.who === 'you') {
+        flashHit();
+        toast('You fell into the ditch: +1 for your opponent');
+      } else toast('Your opponent fell into the ditch: +1 for you');
     } else if (e.k === 'spawn') {
       const now = performance.now();
       // The opponent is drawn on a delayed clock, so its blinking starts later too.
@@ -621,11 +687,12 @@ function updateTraining(dt: number): void {
         turnRight: !!keys['ArrowRight'],
       },
       dt,
+      arenaMap,
     );
     if (pressFire(thrower, takeFire())) throwLocal(a.pos, a.yaw);
   }
   if (started) {
-    const wantsThrow = stepBot(b, dt, rng, a.pos);
+    const wantsThrow = stepBot(b, dt, rng, a.pos, arenaMap);
     if (live()) {
       tickThrower(botThrower, dt);
       if (pressFire(botThrower, wantsThrow)) throwLocal(b.pos, b.lookYaw, true);
@@ -635,16 +702,18 @@ function updateTraining(dt: number): void {
   if (hits.mine) {
     myScore++;
     showHitmark();
-    respawnBot(b, rng);
+    respawnBot(b, rng, arenaMap);
     oppShieldUntil = now + SPAWN_PROTECTION * 1000;
   }
-  if (hits.bots) {
+  const fell = inDitch(a.pos, arenaMap);
+  if (hits.bots || fell) {
     oppScore++;
     flashHit();
-    a.pos = randomSpawnPoint(rng);
+    if (fell) toast('You fell into the ditch: +1 for your opponent');
+    a.pos = randomSpawnPoint(rng, arenaMap);
     myShieldUntil = now + SPAWN_PROTECTION * 1000;
   }
-  if (hits.mine || hits.bots) {
+  if (hits.mine || hits.bots || fell) {
     updateScoreboard();
     if (myScore >= WIN_SCORE || oppScore >= WIN_SCORE) showOver([myScore, oppScore], myScore >= WIN_SCORE ? 'you' : 'opp');
   }
@@ -741,7 +810,7 @@ function updateAim(): void {
   while (n < ARC_POINTS - 1) {
     arcPositions.set([ball.pos.x, ball.pos.y, ball.pos.z], n * 3);
     n++;
-    const impact = stepSnowball(ball, 1 / 60, []);
+    const impact = stepSnowball(ball, 1 / 60, [], arenaMap);
     if (impact) {
       landing = impact.point;
       break;

@@ -2,6 +2,7 @@
 // (with an aiming error) and reports when it is lined up to throw; the caller applies the throwing rules.
 import { randomSpawnPoint, resolveCollisions } from './arena.ts';
 import { BOT_SPEED, BOT_THROW_RANGE } from './constants.ts';
+import { DEFAULT_MAP, type ArenaMap } from './maps.ts';
 import { distance2, lerpAngle, wrapAngle, type Vec2 } from './math.ts';
 import type { Rng } from './rng.ts';
 
@@ -43,10 +44,12 @@ const MIN_STEP_SQ = 0.04; // m^2; closer than 0.2 m the bot stops
  * Advances the bot by `dt`. With a `foe`, it sometimes aims at it; returns true while it is lined up within throwing
  * range (feed this to `pressFire`: one throw per aim, since a throw needs a new press).
  */
-export function stepBot(bot: BotState, dt: number, rng: Rng, foe?: Vec2): boolean {
+export function stepBot(bot: BotState, dt: number, rng: Rng, foe?: Vec2, map: ArenaMap = DEFAULT_MAP): boolean {
   bot.wait -= dt;
   if (distance2(bot.pos, bot.target) < ARRIVED || bot.wait <= 0) {
-    bot.target = randomSpawnPoint(rng);
+    // Spawn points keep 1 m from the ditch, and the playable floor is a square: walking straight between two of
+    // them never crosses the ditch.
+    bot.target = randomSpawnPoint(rng, map);
     bot.wait = 2 + rng() * 3;
   }
 
@@ -57,7 +60,7 @@ export function stepBot(bot: BotState, dt: number, rng: Rng, foe?: Vec2): boolea
     const step = (BOT_SPEED * dt) / Math.sqrt(lenSq);
     bot.pos.x += dx * step;
     bot.pos.z += dz * step;
-    resolveCollisions(bot.pos);
+    resolveCollisions(bot.pos, map);
   }
 
   bot.lookWait -= dt;
@@ -83,7 +86,7 @@ export function stepBot(bot: BotState, dt: number, rng: Rng, foe?: Vec2): boolea
 }
 
 /** After being hit: a new random position and a new walking target. */
-export function respawnBot(bot: BotState, rng: Rng): void {
-  bot.pos = randomSpawnPoint(rng);
-  bot.target = randomSpawnPoint(rng);
+export function respawnBot(bot: BotState, rng: Rng, map: ArenaMap = DEFAULT_MAP): void {
+  bot.pos = randomSpawnPoint(rng, map);
+  bot.target = randomSpawnPoint(rng, map);
 }

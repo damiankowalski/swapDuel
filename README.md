@@ -28,6 +28,9 @@ land. The opponent is always at the centre of the screen (the centre is the poin
 
 There is also a **Training (bot)** mode for solo play; the bot throws back.
 
+Two arenas, chosen in the menu (the host's choice counts online): **Classic** (20 x 20 m, one crate) and **Frozen
+moat** (28 x 28 m, three crates and a ditch along the walls: falling in gives your opponent a point).
+
 A match starts after a 3-2-1 countdown and ends when someone reaches **10 points**; then both players can ask for a
 rematch. After being hit you respawn and blink for 1.5 s: snowballs fly through you meanwhile. The blue ring on the
 ground marks your own fighter.

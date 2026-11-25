@@ -1,5 +1,6 @@
 // One network tick of a fighter, identical on the server and in client prediction.
 import { KEY_BACK, KEY_FORWARD, KEY_LEFT, KEY_RIGHT, KEY_TURN_LEFT, KEY_TURN_RIGHT, TICK_DT } from './protocol.ts';
+import { DEFAULT_MAP, type ArenaMap } from './maps.ts';
 import { wrapAngle } from './math.ts';
 import { stepPlayer, type MoveInput, type PlayerState } from './player.ts';
 
@@ -15,7 +16,7 @@ export function keysToInput(keys: number): MoveInput {
 }
 
 /** Advances a fighter by one tick with the given key bitmask; yaw stays in [-PI, PI]. */
-export function applyInput(player: PlayerState, keys: number, dt = TICK_DT): void {
-  stepPlayer(player, keysToInput(keys), dt);
+export function applyInput(player: PlayerState, keys: number, dt = TICK_DT, map: ArenaMap = DEFAULT_MAP): void {
+  stepPlayer(player, keysToInput(keys), dt, map);
   player.yaw = wrapAngle(player.yaw);
 }

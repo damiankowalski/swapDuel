@@ -40,8 +40,9 @@ Browser B ──wss://host/ws──┘                       └── room stat
 3. Server answers `welcome { v, tickHz: 30, serverTick }` or `reject { reason }` and closes. Reasons:
    `version` (client shows "A new version is available - reload the page"), `busy`, `full`, `bad_code`, `timeout`,
    `protocol`.
-4. Client sends `create {}` or `join { code }`; server answers `room { code, seat }` or `reject`.
-5. When the second player joins, the server starts the match at once: `start { tick, you, opp, go }` to both, where
+4. Client sends `create { map? }` (the arena: `classic` by default, or `moat`) or `join { code }`; server answers
+   `room { code, seat }` or `reject`.
+5. When the second player joins, the server starts the match at once: `start { tick, you, opp, go, map }` to both (the guest learns the arena here), where
    `go` is the countdown (3 s): until then inputs are acknowledged but nobody moves, throws or gets snowballs. (There
    is no `ready` step: until a player clicks the start screen, the client sends empty inputs, and the idle timeout
    covers a player who never starts.)
@@ -98,6 +99,10 @@ nothing about players, codes or addresses.
 - Hit -> score +1, the victim respawns at a server-chosen point and keeps its snowballs; for 1.5 s
   (`SPAWN_PROTECTION`) snowballs fly through it. Clients make a protected fighter blink (they know from the `spawn`
   event; no extra field). The first to 10 points (`WIN_SCORE`) wins; the match then stops stepping (ADR-014).
+- **Arenas** (`shared/maps.ts`, ADR-015): every rule takes the arena (walls, crates, spawn points, snowball
+  collisions). On the moat, a fighter whose centre passes the ditch's edge by 0.3 m falls in: `fall { who }`, a point
+  for the other player, a respawn with protection, as after a hit. Prediction uses the same arena, so the client walks
+  into the ditch and the server's snapshot teleports it.
 
 ## 6. Messages during a match
 
@@ -113,7 +118,7 @@ Server -> client, every tick:
 snap { tick, ack: last seq processed for this client,
        you: { x, z, yaw }, opp: { x, z, yaw },
        score: [you, opp], ammo: your snowballs, next: seconds until the next one,
-       ev: [ throw { by, id, from, vel } | splat { id, at } | hit { by } | spawn { who, x, z } ] }
+       ev: [ throw { by, id, from, vel } | splat { id, at } | hit { by } | fall { who } | spawn { who, x, z } ] }
 ```
 
 A `throw` carries the snowball's start and velocity: the flight is deterministic, so clients draw it without a

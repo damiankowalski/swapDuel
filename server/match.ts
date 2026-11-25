@@ -1,5 +1,6 @@
 // Authoritative simulation of one duel (docs/NETWORKING.md §5-6). No I/O: the room feeds inputs and sends snapshots.
-import { randomSpawnPoint } from '../shared/arena.ts';
+import { inDitch, randomSpawnPoint } from '../shared/arena.ts';
+import { DEFAULT_MAP, type ArenaMap } from '../shared/maps.ts';
 import { COUNTDOWN, SPAWN_GUEST, SPAWN_HOST, SPAWN_PROTECTION, WIN_SCORE } from '../shared/constants.ts';
 import { applyInput } from '../shared/netsim.ts';
 import type { PlayerState } from '../shared/player.ts';
@@ -66,9 +67,12 @@ export class Match {
   /** The seat that reached WIN_SCORE, once someone has. The match does not step after that. */
   winner: Seat | null = null;
 
+  readonly map: ArenaMap;
+
   /** `countdown` in seconds; tests pass 0 to start at once. */
-  constructor(rng: Rng, countdown = COUNTDOWN) {
+  constructor(rng: Rng, countdown = COUNTDOWN, map: ArenaMap = DEFAULT_MAP) {
     this.rng = rng;
+    this.map = map;
     this.goTick = Math.round(countdown / TICK_DT);
     this.players = [newPlayer(SPAWN_HOST), newPlayer(SPAWN_GUEST)];
   }
@@ -102,9 +106,15 @@ export class Match {
     const p = this.players[seat];
     // During the countdown inputs are acknowledged but do nothing.
     const keys = this.tick >= this.goTick ? input.k : 0;
-    applyInput(p.state, keys);
+    applyInput(p.state, keys, undefined, this.map);
     p.ack = input.s;
     if (input.k !== 0) p.lastActiveTick = this.tick;
+    if (inDitch(p.state.pos, this.map)) {
+      // Fell into the ditch: a point for the other player, and a respawn.
+      for (const s of [0, 1] as const) this.emit(s, { k: 'fall', who: rel(s, seat) });
+      this.award(other(seat), seat);
+      return;
+    }
     if (!pressFire(p.thrower, (keys & KEY_FIRE) !== 0)) return;
     if (this.snowballs.length >= MAX_SNOWBALLS) return;
 
@@ -129,22 +139,28 @@ export class Match {
       const victimSeat = other(ball.owner);
       const shielded = this.tick < this.players[victimSeat].protectedUntil || this.winner !== null;
       const targets = shielded ? [] : [{ seat: victimSeat, pos: this.players[victimSeat].state.pos }];
-      const impact = stepSnowball(ball, TICK_DT, targets);
+      const impact = stepSnowball(ball, TICK_DT, targets, this.map);
       if (!impact) continue;
       this.snowballs.splice(i, 1);
       const at: [number, number, number] = [r3(impact.point.x), r3(impact.point.y), r3(impact.point.z)];
       for (const s of [0, 1] as const) this.emit(s, { k: 'splat', id: ball.id, at });
       if (impact.kind !== 'target') continue;
 
-      this.score[ball.owner]++;
-      if (this.score[ball.owner] >= WIN_SCORE) this.winner = ball.owner;
-      const victim = this.players[victimSeat];
-      victim.state.pos = randomSpawnPoint(this.rng);
-      victim.protectedUntil = this.tick + Math.round(SPAWN_PROTECTION / TICK_DT);
-      for (const s of [0, 1] as const) {
-        this.emit(s, { k: 'hit', by: rel(s, ball.owner) });
-        this.emit(s, { k: 'spawn', who: rel(s, victimSeat), x: victim.state.pos.x, z: victim.state.pos.z });
-      }
+      for (const s of [0, 1] as const) this.emit(s, { k: 'hit', by: rel(s, ball.owner) });
+      this.award(ball.owner, victimSeat);
+    }
+  }
+
+  /** A point for `scorer`; `victim` respawns somewhere safe and is protected for a moment. */
+  private award(scorer: Seat, victimSeat: Seat): void {
+    if (this.winner !== null) return;
+    this.score[scorer]++;
+    if (this.score[scorer] >= WIN_SCORE) this.winner = scorer;
+    const victim = this.players[victimSeat];
+    victim.state.pos = randomSpawnPoint(this.rng, this.map);
+    victim.protectedUntil = this.tick + Math.round(SPAWN_PROTECTION / TICK_DT);
+    for (const s of [0, 1] as const) {
+      this.emit(s, { k: 'spawn', who: rel(s, victimSeat), x: victim.state.pos.x, z: victim.state.pos.z });
     }
   }
 

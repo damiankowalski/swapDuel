@@ -9,7 +9,8 @@ disagree, say so before building anything large.
 shows the arena **through your opponent's eyes**. To hit, you learn to aim "backwards": the opponent stands at the centre
 of the screen (the point they look from), so you throw your snowball's arc towards the centre.
 
-- 1v1 on a square arena (20 x 20 m) with one indestructible crate in the middle.
+- 1v1 on a square arena: **Classic** (20 x 20 m, one crate) or **Frozen moat** (28 x 28 m, three crates, a ditch
+  along the walls; falling in gives the opponent a point). The host picks the arena.
 - Controls: `W A S D` move, `<-` `->` turn, `Space` throw a snowball, `V` toggle view (opponent's eyes <-> own).
 - Snowballs fly in an arc (about 18 m); 5 at the start, one more every 10 s, no cap. A dashed arc and the reticle
   show where the next one lands.
@@ -25,7 +26,7 @@ of the screen (the point they look from), so you throw your snowball's arc towar
 
 ## Repository map
 
-Today (P4a, v0.6.0):
+Today (P4b, v0.7.0):
 
 ```
 swapduel/
@@ -34,7 +35,7 @@ swapduel/
 ├─ server/                game server, TypeScript run directly by Node: app.ts (HTTP + WebSocket, limits),
 │                         rooms.ts (codes, MAX_ROOMS, timeouts), match.ts (authoritative 30 Hz simulation),
 │                         config.ts (environment), limits.ts, main.ts (entry); *.test.ts next to them
-├─ shared/                pure TypeScript: game rules (constants, arena, player, bot, snowballs, room codes), the
+├─ shared/                pure TypeScript: game rules (constants, maps, arena, player, bot, snowballs, room codes), the
 │                         protocol, and the netcode (netsim, prediction, interpolation, One Euro filter, lag)
 ├─ tools/                 sim.ts (CLI), netplay.ts (headless network match for the camera metrics)
 ├─ docs/                  STATUS, ROADMAP, DECISIONS, NETWORKING, SECURITY, DEPLOYMENT

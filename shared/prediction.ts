@@ -1,4 +1,5 @@
 // Client-side prediction and reconciliation of the local fighter (docs/NETWORKING.md §7).
+import { DEFAULT_MAP, type ArenaMap } from './maps.ts';
 import { applyInput } from './netsim.ts';
 import type { PlayerState } from './player.ts';
 import { MAX_SEQ, type Pose } from './protocol.ts';
@@ -31,7 +32,10 @@ export class Predictor {
   corrections = 0;
   lastCorrection = 0;
 
-  constructor(start: Pose) {
+  private readonly map: ArenaMap;
+
+  constructor(start: Pose, map: ArenaMap = DEFAULT_MAP) {
+    this.map = map;
     this.state = { pos: { x: start.x, z: start.z }, yaw: start.yaw, pitch: 0 };
     this.prev = clone(this.state);
   }
@@ -43,7 +47,7 @@ export class Predictor {
     this.pending.push(input);
     if (this.pending.length > MAX_PENDING) this.pending.shift();
     this.prev = clone(this.state);
-    applyInput(this.state, keys);
+    applyInput(this.state, keys, undefined, this.map);
     return input;
   }
 
@@ -51,7 +55,7 @@ export class Predictor {
   reconcile(ack: number, server: Pose): number {
     while (this.pending.length > 0 && this.pending[0]!.s <= ack) this.pending.shift();
     const replayed: PlayerState = { pos: { x: server.x, z: server.z }, yaw: server.yaw, pitch: 0 };
-    for (const input of this.pending) applyInput(replayed, input.k);
+    for (const input of this.pending) applyInput(replayed, input.k, undefined, this.map);
 
     const dx = this.state.pos.x - replayed.pos.x;
     const dz = this.state.pos.z - replayed.pos.z;

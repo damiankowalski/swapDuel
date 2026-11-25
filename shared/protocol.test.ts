@@ -60,10 +60,20 @@ test('status responses are validated', () => {
 test('protocol v3: rematch, start with countdown, over', () => {
   assert.deepEqual(parseClientMessage('{"t":"rematch"}'), { t: 'rematch' });
   assert.equal(parseClientMessage('{"t":"rematch","x":1}'), null);
-  const start = { t: 'start', tick: 0, you: { x: 0, z: 6, yaw: 0 }, opp: { x: 0, z: -6, yaw: 3 }, go: 3 };
+  const start = { t: 'start', tick: 0, you: { x: 0, z: 6, yaw: 0 }, opp: { x: 0, z: -6, yaw: 3 }, go: 3, map: 'classic' };
   assert.deepEqual(parseServerMessage(JSON.stringify(start)), start);
   assert.equal(parseServerMessage(JSON.stringify({ ...start, go: -1 })), null);
   assert.deepEqual(parseServerMessage('{"t":"over","score":[10,7],"winner":"you"}'), { t: 'over', score: [10, 7], winner: 'you' });
   assert.equal(parseServerMessage('{"t":"over","score":[10],"winner":"you"}'), null);
   assert.deepEqual(parseServerMessage('{"t":"rematch"}'), { t: 'rematch' });
+});
+
+test('protocol v4: arenas and falls', () => {
+  assert.deepEqual(parseClientMessage('{"t":"create","map":"moat"}'), { t: 'create', map: 'moat' });
+  assert.deepEqual(parseClientMessage('{"t":"create"}'), { t: 'create' });
+  assert.equal(parseClientMessage('{"t":"create","map":"lava"}'), null);
+  const start = { t: 'start', tick: 0, you: { x: 0, z: 13, yaw: 0 }, opp: { x: 0, z: -6, yaw: 3 }, go: 3, map: 'moat' };
+  assert.deepEqual(parseServerMessage(JSON.stringify(start)), start);
+  assert.equal(parseServerMessage(JSON.stringify({ ...start, map: 'lava' })), null);
+  assert.equal(parseServerMessage(JSON.stringify({ ...start, you: { x: 0, z: 16, yaw: 0 } })), null);
 });

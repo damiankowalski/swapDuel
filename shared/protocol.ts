@@ -1,9 +1,10 @@
 // Client <-> server protocol (docs/NETWORKING.md). JSON text frames with short keys.
 // Both sides validate everything they receive; the server closes the socket on any invalid message.
-import { AMMO_INTERVAL, ARENA_HALF, SNOWBALL_SPEED } from './constants.ts';
+import { AMMO_INTERVAL, SNOWBALL_SPEED } from './constants.ts';
+import { isMapId, MAX_ARENA_HALF, type MapId } from './maps.ts';
 
-/** Bump on every incompatible change; client and server come from the same build. v2: snowballs; v3: match rules. */
-export const PROTOCOL_VERSION = 3;
+/** Bump on every incompatible change; client and server come from the same build. v2: snowballs; v3: match rules; v4: arenas. */
+export const PROTOCOL_VERSION = 4;
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
 /** Largest frame the server accepts (bytes). */
@@ -37,6 +38,8 @@ export type GameEvent =
   /** Snowball `id` hit something and is gone. */
   | { k: 'splat'; id: number; at: Vec3Tuple }
   | { k: 'hit'; by: Who }
+  /** `who` fell into the ditch: a point for the other player. */
+  | { k: 'fall'; who: Who }
   | { k: 'spawn'; who: Who; x: number; z: number };
 
 export type RejectReason = 'version' | 'busy' | 'full' | 'bad_code' | 'timeout' | 'protocol';
@@ -45,7 +48,8 @@ export type EndReason = 'opponent_left' | 'time_limit' | 'idle' | 'room_expired'
 // ---------- Client -> server ----------
 export type ClientMessage =
   | { t: 'hello'; v: number }
-  | { t: 'create' }
+  /** Create a room on an arena (default classic). */
+  | { t: 'create'; map?: MapId }
   | { t: 'join'; code: string }
   | { t: 'in'; s: number; k: number }
   /** After a finished match: I want to play again. */
@@ -58,7 +62,7 @@ export type ServerMessage =
   | { t: 'reject'; reason: RejectReason }
   | { t: 'room'; code: string; seat: 0 | 1 }
   /** A match (or a rematch) starts; nobody can move or throw for `go` seconds (the countdown). */
-  | { t: 'start'; tick: number; you: Pose; opp: Pose; go: number }
+  | { t: 'start'; tick: number; you: Pose; opp: Pose; go: number; map: MapId }
   /** Someone reached WIN_SCORE. The room stays open for a rematch. */
   | { t: 'over'; score: [number, number]; winner: Who }
   /** The opponent asked for a rematch. */
@@ -112,8 +116,12 @@ export function parseClientMessage(text: string): ClientMessage | null {
   switch (m['t']) {
     case 'hello':
       return onlyKeys(m, ['t', 'v']) && isInt(m['v'], 0, 1_000_000) ? { t: 'hello', v: m['v'] } : null;
-    case 'create':
-      return onlyKeys(m, ['t']) ? { t: 'create' } : null;
+    case 'create': {
+      if (!onlyKeys(m, ['t', 'map'])) return null;
+      const map = m['map'];
+      if (map === undefined) return { t: 'create' };
+      return isMapId(map) ? { t: 'create', map } : null;
+    }
     case 'join': {
       if (!onlyKeys(m, ['t', 'code'])) return null;
       const code = m['code'];
@@ -132,8 +140,8 @@ export function parseClientMessage(text: string): ClientMessage | null {
   }
 }
 
-const POS_LIMIT = ARENA_HALF + 1;
-const POINT_LIMIT = ARENA_HALF + 5;
+const POS_LIMIT = MAX_ARENA_HALF + 1;
+const POINT_LIMIT = MAX_ARENA_HALF + 5;
 const VEL_LIMIT = SNOWBALL_SPEED * 2;
 const MAX_AMMO_VALUE = 100_000;
 
@@ -168,6 +176,7 @@ function parseEvent(v: unknown): GameEvent | null {
     return at ? { k: 'splat', id: e['id'], at } : null;
   }
   if (e['k'] === 'hit' && isWho(e['by'])) return { k: 'hit', by: e['by'] };
+  if (e['k'] === 'fall' && isWho(e['who'])) return { k: 'fall', who: e['who'] };
   if (e['k'] === 'spawn' && isWho(e['who']) && isNum(e['x'], POS_LIMIT) && isNum(e['z'], POS_LIMIT)) {
     return { k: 'spawn', who: e['who'], x: e['x'], z: e['z'] };
   }
@@ -201,8 +210,9 @@ export function parseServerMessage(text: string): ServerMessage | null {
     case 'start': {
       const you = parsePose(m['you']);
       const opp = parsePose(m['opp']);
-      return isInt(m['tick'], 0, Number.MAX_SAFE_INTEGER) && you && opp && isNum(m['go'], 10) && (m['go'] as number) >= 0
-        ? { t: 'start', tick: m['tick'], you, opp, go: m['go'] as number }
+      return isInt(m['tick'], 0, Number.MAX_SAFE_INTEGER) && you && opp && isNum(m['go'], 10) && (m['go'] as number) >= 0 &&
+        isMapId(m['map'])
+        ? { t: 'start', tick: m['tick'], you, opp, go: m['go'] as number, map: m['map'] }
         : null;
     }
     case 'over': {
