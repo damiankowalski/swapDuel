@@ -26,7 +26,7 @@ ground under your own fighter; a training bot that aims and throws. Protocol v3 
 
 **Done when:** both modes end at 10 with a winner and a rematch; the rules are server-side and tested.
 
-### P4b - Arena 2 with a ditch · M · v0.7.0 · *in review*
+### P4b - Arena 2 with a ditch · M · v0.7.0 · *done, deployed 25 Nov 2026*
 
 A bigger arena (about 28 x 28 m) with a ditch along the walls: falling in gives the opponent a point (like a hit) and
 respawns you; two or three smaller crates instead of one big one. The host picks the map when creating a game; the bot
@@ -37,13 +37,16 @@ ditch, the map choice and the bot.
 
 Built as planned (ADR-015): arena "Frozen moat", 28 x 28 m, ditch 1.6 m wide and 1.2 m deep, three crates.
 
-### P4c - Winter look and sound · M · v0.8.0
+### P4c - Winter look and sound · M · v0.8.0 · *in review*
 
 Textures generated locally by the owner's image models (snow ground, walls, crates, sky; small files, licences
 checked), snowmen fighters built from simple shapes, simple animations in code (walk, throw, hit, fall), sounds
 generated with Web Audio (throw, splat, hit, point, win). The Three.js upgrade proposed by Dependabot is tested here.
 
 **Done when:** the game looks wintry, gives audible feedback, and the single-file build stays small (about 1 MB).
+
+Built as planned (ADR-016): four textures from Z-Image-Turbo (Apache-2.0), about 230 kB of JPEG; the sky is a
+gradient, not an image; sounds are synthesised, no audio files; Three.js upgraded to 0.187. Build about 900 kB.
 
 ## Later
 

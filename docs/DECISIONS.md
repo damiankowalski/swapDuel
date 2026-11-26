@@ -255,3 +255,26 @@ the arena chosen in the menu; the bot only walks between safe points, so it neve
 tactics without any new control. Treating a fall as a point for the opponent reuses the scoring, respawn and
 protection rules, so the first-to-10 match stays the same. Default arguments keep the classic arena's behaviour
 unchanged everywhere.
+
+---
+
+## ADR-016 - Winter look: locally generated textures, code-built snowmen, synthesised sound
+
+**Date:** 2026-11-25 · **Status:** accepted (package P4c)
+
+**Decision.** Four textures (snow, snow-block wall, ice, wooden crate) are generated on the owner's machine with
+Z-Image-Turbo (Tongyi-MAI, Apache-2.0; run through mflux, 4-bit), saved as 512 px JPEG (about 230 kB in all) in
+`client/assets/` and inlined into the single-file build. They do not tile, so they repeat mirrored. The sky is a
+canvas gradient and the falling snow is a particle cloud. The fighters are snowmen built from spheres, cones and
+cylinders, with team-coloured hats and scarves; the animations are curves in code (`client/src/anim.ts`, tested).
+All sounds are synthesised with Web Audio at run time; `M` mutes and the choice is kept in `localStorage`. Three.js
+goes from 0.160.0 to 0.187.0 (Dependabot's proposal; `Clock` replaced with `Timer`), ending ADR-011's pin.
+
+**Alternatives.** Downloaded texture packs and sound effects (licences to track, bigger files); glTF models with
+skeletal animation (an asset pipeline and a loader for two characters); procedural canvas textures only (smaller, but
+flatter); keeping Three.js 0.160.
+
+**Reason.** Generated images under a permissive licence need no attribution chain and stay small; shapes and code
+animation keep the hit volumes and the look in step and add no tooling; synthesised sound adds nothing to download.
+The build stays under 1 MB. The upgrade was a type-check-clean change, tested here with the new visuals.
+

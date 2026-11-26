@@ -35,6 +35,8 @@ A match starts after a 3-2-1 countdown and ends when someone reaches **10 points
 rematch. After being hit you respawn and blink for 1.5 s: snowballs fly through you meanwhile. The blue ring on the
 ground marks your own fighter.
 
+The fighters are snowmen: yours wears blue, your opponent red. `M` turns the sound on or off.
+
 The server runs one match at a time; while one is running, others see "A match is in progress". Online play needs
 the game server: opened from a downloaded file, only training is available.
 
@@ -66,4 +68,5 @@ All commands are listed in [`AGENTS.md`](AGENTS.md#commands).
 
 ## License
 
-MIT - see `LICENSE`.
+MIT - see `LICENSE`. The textures in `client/assets/` were generated for this project with Z-Image-Turbo
+(Apache-2.0) and are under the same MIT licence.
